@@ -8,6 +8,41 @@ CPUState *qemu_get_cpu(int index);
 
 DebugTSSMWindow tssm_window;
 
+using U32 = uint32_t;
+using S32 = int32_t;
+using U16 = uint16_t;
+using S16 = int16_t;
+template <typename T> using guest_ptr = U32;
+
+struct xMemBlock_tag {
+    U32 addr;
+    U32 size;
+    S32 align;
+};
+
+struct xHeapState_tag {
+    U32 curr;
+    U16 blk_ct;
+    U16 pad;
+    U32 used;
+    U32 wasted;
+    U32 unk;
+};
+
+struct xMemHeap_tag {
+    U32 flags;
+    U32 hard_base;
+    U32 size;
+    S16 opp_heap[2];
+
+    xHeapState_tag state[12];
+
+    U16 state_idx;
+    U16 max_blks;
+    guest_ptr<xMemBlock_tag> blk;
+    guest_ptr<xMemBlock_tag> lastblk;
+};
+
 template <typename T> static T read_guest_infallible(vaddr address)
 {
     T value{};
@@ -35,8 +70,7 @@ void DebugTSSMWindow::Draw()
     m_memory_editor.DrawWindow("Memory", 0x0, 1024 * 1024 * 64);
 
     if (ImGui::Begin("Heap", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        auto heap_0 = read_guest_infallible<DebugTSSMWindow::xMemHeap_tag>(
-            offsets.gx_heap);
+        auto heap_0 = read_guest_infallible<xMemHeap_tag>(offsets.gx_heap);
         if (ImGui::BeginTabBar("Depths")) {
             char tab_title[8];
 
