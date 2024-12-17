@@ -1,5 +1,6 @@
 #include "tssm.hh"
 #include "misc.hh"
+#include <cstring>
 
 extern "C" {
 CPUState *qemu_get_cpu(int index);
@@ -8,11 +9,37 @@ CPUState *qemu_get_cpu(int index);
 
 DebugTSSMWindow tssm_window;
 
+using U8 = uint8_t;
 using U32 = uint32_t;
 using S32 = int32_t;
 using U16 = uint16_t;
 using S16 = int16_t;
+using F32 = float;
+// FIXME: Somehow a template could just take this value and spit out it's
+//        object. No idea how to make it work though.
 template <typename T> using guest_ptr = U32;
+
+template <typename T>
+bool ImGui::CheckboxFlagsT(const char *label, T *flags, T flags_value)
+{
+    bool all_on = (*flags & flags_value) == flags_value;
+    bool any_on = (*flags & flags_value) != 0;
+    bool pressed;
+    if (!all_on && any_on) {
+        ImGuiContext &g = *GImGui;
+        g.NextItemData.ItemFlags |= ImGuiItemFlags_MixedValue;
+        pressed = Checkbox(label, &all_on);
+    } else {
+        pressed = Checkbox(label, &all_on);
+    }
+    if (pressed) {
+        if (all_on)
+            *flags |= flags_value;
+        else
+            *flags &= ~flags_value;
+    }
+    return pressed;
+}
 
 struct xMemBlock_tag {
     U32 addr;
@@ -43,13 +70,279 @@ struct xMemHeap_tag {
     guest_ptr<xMemBlock_tag> lastblk;
 };
 
+// FIXME: Stolen from BFBB, not entirely accurate.
+enum en_ZBASETYPE : U8 {
+    eBaseTypeUnknown,
+    eBaseTypeTrigger,
+    eBaseTypeVillain,
+    eBaseTypePlayer,
+    eBaseTypePickup,
+    eBaseTypeEnv,
+    eBaseTypePlatform,
+    eBaseTypeCamera,
+    eBaseTypeDoor,
+    eBaseTypeSavePoint,
+    eBaseTypeItem,
+    eBaseTypeStatic,
+    eBaseTypeDynamic,
+    eBaseTypeMovePoint,
+    eBaseTypeTimer,
+    eBaseTypeBubble,
+    eBaseTypePortal,
+    eBaseTypeGroup,
+    eBaseTypePendulum,
+    eBaseTypeUnk1,
+    eBaseTypeFFX,
+    eBaseTypeVFX,
+    eBaseTypeCounter,
+    eBaseTypeHangable,
+    eBaseTypeButton,
+    eBaseTypeProjectile,
+    eBaseTypeSurface,
+    eBaseTypeDestructObj,
+    eBaseTypeGust,
+    eBaseTypeVolume,
+    eBaseTypeDispatcher,
+    eBaseTypeCond,
+    eBaseTypeUI,
+    eBaseTypeUIFont,
+    eBaseTypeProjectileType,
+    eBaseTypeLobMaster,
+    eBaseTypeFog,
+    eBaseTypeLight,
+    eBaseTypeParticleEmitter,
+    eBaseTypeParticleSystem,
+    eBaseTypeCutsceneMgr,
+    eBaseTypeEGenerator,
+    eBaseTypeScript,
+    eBaseTypeNPC,
+    eBaseTypeHud,
+    eBaseTypeNPCProps,
+    eBaseTypeParticleEmitterProps,
+    eBaseTypeBoulder,
+    eBaseTypeCruiseBubble,
+    eBaseTypeTeleportBox,
+    eBaseTypeBusStop,
+    eBaseTypeTextBox,
+    eBaseTypeTalkBox,
+    eBaseTypeTaskBox,
+    eBaseTypeBoulderGenerator,
+    eBaseTypeNPCSettings,
+    eBaseTypeDiscoFloor,
+    eBaseTypeTaxi,
+    eBaseTypeHUD_model,
+    eBaseTypeHUD_font_meter,
+    eBaseTypeHUD_unit_meter,
+    eBaseTypeBungeeHook,
+    eBaseTypeCameraFly,
+    eBaseTypeTrackPhysics,
+    eBaseTypeZipLine,
+    eBaseTypeArena,
+    eBaseTypeDuplicator,
+    eBaseTypeLaserBeam,
+    eBaseTypeTurret,
+    eBaseTypeCameraTweak,
+    eBaseTypeSlideProps,
+    eBaseTypeHUD_text,
+    eBaseTypeUnk20,
+    eBaseTypeUnk21,
+    eBaseTypeUnk22,
+    eBaseTypeSFX,
+    eBaseTypeUnk23,
+    eBaseTypeUnk24,
+    eBaseTypeUnk25,
+    eBaseTypeUnk2,
+    eBaseTypeUI_text,
+    eBaseTypeUI_image,
+    eBaseTypeUI_model,
+    eBaseTypeUnk6,
+    eBaseTypeUnk7,
+    eBaseTypeUnk8,
+    eBaseTypeUnk9,
+    eBaseTypeUI_box,
+    eBaseTypeUnk11,
+    eBaseTypeUnk12,
+    eBaseTypeUnk13,
+    eBaseTypeUnk14,
+    eBaseTypeUnk15,
+    eBaseTypeRumble,
+    eBaseTypeUnk16,
+    eBaseTypeUnk18,
+    eBaseTypeUnk19,
+    eBaseTypeCount
+};
+
+const char *base_type_names[] = {
+    "Unknown",
+    "Trigger",
+    "Villain",
+    "Player",
+    "Pickup",
+    "Env",
+    "Platform",
+    "Camera",
+    "Door",
+    "SavePoint",
+    "Item",
+    "Static",
+    "Dynamic",
+    "MovePoint",
+    "Timer",
+    "Bubble",
+    "Portal",
+    "Group",
+    "Pendulum",
+    "Unk1",
+    "FFX",
+    "VFX",
+    "Counter",
+    "Hangable",
+    "Button",
+    "Projectile",
+    "Surface",
+    "DestructObj",
+    "Gust",
+    "Volume",
+    "Dispatcher",
+    "Cond",
+    "UI",
+    "UIFont",
+    "ProjectileType",
+    "LobMaster",
+    "Fog",
+    "Light",
+    "ParticleEmitter",
+    "ParticleSystem",
+    "CutsceneMgr",
+    "EGenerator",
+    "Script",
+    "NPC",
+    "Hud",
+    "NPCProps",
+    "ParticleEmitterProps",
+    "Boulder",
+    "CruiseBubble",
+    "TeleportBox",
+    "BusStop",
+    "TextBox",
+    "TalkBox",
+    "TaskBox",
+    "BoulderGenerator",
+    "NPCSettings",
+    "DiscoFloor",
+    "Taxi",
+    "HUD_model",
+    "HUD_font_meter",
+    "HUD_unit_meter",
+    "BungeeHook",
+    "CameraFly",
+    "TrackPhysics",
+    "ZipLine",
+    "Arena",
+    "Duplicator",
+    "LaserBeam",
+    "Turret",
+    "CameraTweak",
+    "SlideProps",
+    "HUD_text",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "SFX",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "UI_text",
+    "UI_image",
+    "UI_model",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "UI_box",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Rumble",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+};
+
+using xLinkAsset = void;
+
+struct xBase;
+typedef S32 (*xBaseEventCB)(xBase *, xBase *, U32, const F32 *, xBase *);
+
+struct xBase {
+    U32 unk;
+    U32 id;
+    U8 baseType;
+    U8 linkCount;
+    U16 baseFlags;
+    guest_ptr<xLinkAsset> link;
+    guest_ptr<xBaseEventCB> eventFunc;
+};
+
+struct xEnt : xBase {};
+
+struct xScene {
+    U32 sceneID;
+    U16 flags;
+    U16 num_trigs;
+    U16 num_stats;
+    U16 num_dyns;
+    U16 num_npcs;
+    U16 num_act_ents;
+    char _padding[24];
+    guest_ptr<guest_ptr<xEnt>> trigs;
+    guest_ptr<guest_ptr<xEnt>> stats;
+    guest_ptr<guest_ptr<xEnt>> dyns;
+    guest_ptr<guest_ptr<xEnt>> npcs;
+    guest_ptr<guest_ptr<xEnt>> act_ents;
+    char _padding2[48]; // FIXME: How long is this versus zScene?
+};
+
+struct zScene : xScene {
+    U32 num_base;
+    guest_ptr<guest_ptr<xBase>> base;
+};
+
+enum BaseFlags : U16 {
+    Enabled = 1 << 0,
+    Persistent = 1 << 1,
+    Valid = 1 << 2,
+    VisibleDuringCutscenes = 1 << 3,
+    ReceiveShadows = 1 << 4,
+};
+
+const char *base_flag_names[] = { "Enabled", "Persistent", "Valid",
+                                  "VisibleDuringCutscenes", "ReceiveShadows" };
+
+struct {
+    guest_ptr<U32> active_heap = 0x00413a3c;
+    guest_ptr<xMemHeap_tag> gx_heap = 0x00413718;
+    guest_ptr<zScene> scene = 0x002afe2c;
+    guest_ptr<S32> mem_depth_just_hip_start = 0x002b6a9c;
+    guest_ptr<S32> mem_depth_scene_start = 0x002b6a98;
+    guest_ptr<S32> mem_depth_just_hip_start_player = 0x002b62ec;
+} offsets;
+
 template <typename T> static T read_guest_infallible(vaddr address)
 {
     T value{};
 
     cpu_memory_rw_debug(qemu_get_cpu(0), address, &value, sizeof(value), false);
 
-    return value;
+    return std::move(value);
+}
+
+template <typename T> static void write_guest_infallible(vaddr address, T value)
+{
+    cpu_memory_rw_debug(qemu_get_cpu(0), address, &value, sizeof(value), true);
 }
 
 DebugTSSMWindow::DebugTSSMWindow()
@@ -59,7 +352,10 @@ DebugTSSMWindow::DebugTSSMWindow()
         return read_guest_infallible<ImU8>(reinterpret_cast<vaddr>(mem) + off);
     };
 
-    m_memory_editor.ReadOnly = true;
+    m_memory_editor.WriteFn = [](ImU8 *mem, size_t off, ImU8 d,
+                                 void *user_data) {
+        write_guest_infallible(reinterpret_cast<vaddr>(mem) + off, d);
+    };
 }
 
 void DebugTSSMWindow::Draw()
@@ -148,6 +444,134 @@ void DebugTSSMWindow::Draw()
             }
 
             ImGui::EndTabBar();
+        }
+    }
+
+    ImGui::End();
+
+    auto scene_ptr = read_guest_infallible<guest_ptr<zScene>>(offsets.scene);
+    auto scene = read_guest_infallible<zScene>(scene_ptr);
+
+    char scene_id[5] = {
+        static_cast<char>((scene.sceneID >> 24) & 0xFF),
+        static_cast<char>((scene.sceneID >> 16) & 0xFF),
+        static_cast<char>((scene.sceneID >> 8) & 0xFF),
+        static_cast<char>(scene.sceneID & 0xFF),
+        '\0',
+    };
+
+    if (scene.sceneID == 0)
+        strcpy(scene_id, "None");
+
+    char text_buffer[64];
+    sprintf(text_buffer, "Scene %s##Scene", scene_id);
+
+    if (ImGui::Begin(text_buffer)) {
+        if (ImGui::BeginTable(
+                "Bases", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders)) {
+            ImGui::TableSetupColumn("ID");
+            ImGui::TableSetupColumn("Type");
+            ImGui::TableSetupColumn("Links");
+            ImGui::TableSetupColumn("Flags");
+            ImGui::TableHeadersRow();
+
+            for (auto i = 0u; i < scene.num_base; i++) {
+                ImGui::PushID(i);
+                auto base_ptr = read_guest_infallible<guest_ptr<xBase>>(
+                    scene.base + (sizeof(guest_ptr<xBase>) * i));
+
+                auto base = read_guest_infallible<xBase>(base_ptr);
+
+                ImGui::TableNextColumn();
+                sprintf(text_buffer, "0x%x", base.id);
+
+                if (ImGui::Selectable(text_buffer, false)) {
+                    m_selected_base_index = i;
+                    ImGui::OpenPopup("SelectedBaseIDPopup");
+                }
+
+                if (ImGui::BeginPopup("SelectedBaseIDPopup")) {
+                    if (m_selected_base_index < scene.num_base) {
+                        auto base_ptr = read_guest_infallible<guest_ptr<xBase>>(
+                            scene.base + (sizeof(guest_ptr<xBase>) *
+                                          *m_selected_base_index));
+
+                        if (ImGui::Selectable("Goto in memory"))
+                            m_memory_editor.GotoAddr = base_ptr;
+                    } else {
+                        m_selected_base_index.reset();
+                    }
+
+                    ImGui::EndPopup();
+                }
+
+                ImGui::TableNextColumn();
+
+                const char *base_type_name;
+                if (base.baseType >= eBaseTypeCount)
+                    base_type_name = base_type_names[eBaseTypeUnknown];
+                else
+                    base_type_name = base_type_names[base.baseType];
+                ImGui::Text("%s", base_type_name);
+
+                if (ImGui::BeginItemTooltip()) {
+                    ImGui::Text("0x%x", base.baseType);
+                    ImGui::EndTooltip();
+                }
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", base.linkCount);
+                ImGui::TableNextColumn();
+                sprintf(text_buffer, "0x%x", base.baseFlags);
+
+                if (ImGui::Selectable(text_buffer, false)) {
+                    m_selected_base_index = i;
+                    ImGui::OpenPopup("SelectedBaseFlagsPopup");
+                }
+
+
+                if (ImGui::BeginPopup("SelectedBaseFlagsPopup")) {
+                    if (m_selected_base_index < scene.num_base) {
+                        auto base_ptr = read_guest_infallible<guest_ptr<xBase>>(
+                            scene.base + (sizeof(guest_ptr<xBase>) *
+                                          *m_selected_base_index));
+
+
+                        auto base = read_guest_infallible<xBase>(base_ptr);
+
+                        auto modified = false;
+
+                        modified |= ImGui::CheckboxFlagsT<U16>(
+                            "Enabled", &base.baseFlags, BaseFlags::Enabled);
+                        modified |= ImGui::CheckboxFlagsT<U16>(
+                            "Persistent", &base.baseFlags,
+                            BaseFlags::Persistent);
+                        modified |= ImGui::CheckboxFlagsT<U16>(
+                            "Valid", &base.baseFlags, BaseFlags::Valid);
+                        modified |= ImGui::CheckboxFlagsT<U16>(
+                            "Visible During Cutscenes", &base.baseFlags,
+                            BaseFlags::VisibleDuringCutscenes);
+                        modified |= ImGui::CheckboxFlagsT<U16>(
+                            "Receive Shadows", &base.baseFlags,
+                            BaseFlags::ReceiveShadows);
+
+                        if (modified)
+                            write_guest_infallible(
+                                reinterpret_cast<vaddr>(
+                                    &reinterpret_cast<xBase *>(base_ptr)
+                                         ->baseFlags),
+                                base.baseFlags);
+                    } else {
+                        m_selected_base_index.reset();
+                    }
+
+                    ImGui::EndPopup();
+                }
+
+                ImGui::PopID();
+            }
+
+            ImGui::EndTable();
         }
     }
 

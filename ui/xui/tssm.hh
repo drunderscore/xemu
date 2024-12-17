@@ -21,6 +21,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui.h"
 #include "imgui_memory_editor.h"
+#include <optional>
 
 class DebugTSSMWindow {
 public:
@@ -30,16 +31,8 @@ public:
     bool m_is_open{};
 
 private:
-    struct {
-        uint32_t active_heap = 0x00413a3c;
-        uint32_t gx_heap = 0x00413718;
-        uint32_t scene = 0x002afe2c;
-        uint32_t mem_depth_just_hip_start = 0x002b6a9c;
-        uint32_t mem_depth_scene_start = 0x002b6a98;
-        uint32_t mem_depth_just_hip_start_player = 0x002b62ec;
-    } offsets;
-
     MemoryEditor m_memory_editor;
+    std::optional<unsigned short> m_selected_base_index{};
 };
 
 extern DebugTSSMWindow tssm_window;
