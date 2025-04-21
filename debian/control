@@ -3,9 +3,13 @@ Section: games
 Priority: optional
 Maintainer: Matt Borgerson <contact@mborgerson.com>
 Build-Depends: debhelper (>= 11),
+ cmake,
  git,
  python3:any,
+ python3-pip,
+ python3-tomli,
  python3-yaml,
+ python3-venv,
  ninja-build,
  libgtk-3-dev,
  libepoxy-dev,
@@ -16,6 +20,8 @@ Build-Depends: debhelper (>= 11),
  libssl-dev,
  libpcap-dev,
  libslirp-dev,
+ libvulkan-dev,
+ libcurl4-gnutls-dev,
 Standards-Version: 3.9.8
 Homepage: https://xemu.app
 XS-Debian-Vcs-Browser: https://github.com/mborgerson/xemu

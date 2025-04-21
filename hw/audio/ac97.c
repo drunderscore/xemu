@@ -20,7 +20,7 @@
 #include "qemu/osdep.h"
 #include "hw/audio/soundhw.h"
 #include "audio/audio.h"
-#include "hw/pci/pci.h"
+#include "hw/pci/pci_device.h"
 #include "hw/qdev-properties.h"
 #include "migration/vmstate.h"
 #include "qemu/module.h"
@@ -28,43 +28,7 @@
 #include "qom/object.h"
 
 #include "ac97_int.h"
-
-enum {
-    AC97_Reset                     = 0x00,
-    AC97_Master_Volume_Mute        = 0x02,
-    AC97_Headphone_Volume_Mute     = 0x04,
-    AC97_Master_Volume_Mono_Mute   = 0x06,
-    AC97_Master_Tone_RL            = 0x08,
-    AC97_PC_BEEP_Volume_Mute       = 0x0A,
-    AC97_Phone_Volume_Mute         = 0x0C,
-    AC97_Mic_Volume_Mute           = 0x0E,
-    AC97_Line_In_Volume_Mute       = 0x10,
-    AC97_CD_Volume_Mute            = 0x12,
-    AC97_Video_Volume_Mute         = 0x14,
-    AC97_Aux_Volume_Mute           = 0x16,
-    AC97_PCM_Out_Volume_Mute       = 0x18,
-    AC97_Record_Select             = 0x1A,
-    AC97_Record_Gain_Mute          = 0x1C,
-    AC97_Record_Gain_Mic_Mute      = 0x1E,
-    AC97_General_Purpose           = 0x20,
-    AC97_3D_Control                = 0x22,
-    AC97_AC_97_RESERVED            = 0x24,
-    AC97_Powerdown_Ctrl_Stat       = 0x26,
-    AC97_Extended_Audio_ID         = 0x28,
-    AC97_Extended_Audio_Ctrl_Stat  = 0x2A,
-    AC97_PCM_Front_DAC_Rate        = 0x2C,
-    AC97_PCM_Surround_DAC_Rate     = 0x2E,
-    AC97_PCM_LFE_DAC_Rate          = 0x30,
-    AC97_PCM_LR_ADC_Rate           = 0x32,
-    AC97_MIC_ADC_Rate              = 0x34,
-    AC97_6Ch_Vol_C_LFE_Mute        = 0x36,
-    AC97_6Ch_Vol_L_R_Surround_Mute = 0x38,
-    AC97_Vendor_Reserved           = 0x58,
-    AC97_Sigmatel_Analog           = 0x6c, /* We emulate a Sigmatel codec */
-    AC97_Sigmatel_Dac2Invert       = 0x6e, /* We emulate a Sigmatel codec */
-    AC97_Vendor_ID1                = 0x7c,
-    AC97_Vendor_ID2                = 0x7e
-};
+#include "ac97.h"
 
 #define SOFT_VOLUME
 #define SR_FIFOE 16             /* rwc */
@@ -126,11 +90,6 @@ enum {
 #define BD_IOC (1 << 31)      /* Interrupt on Completion */
 #define BD_BUP (1 << 30)      /* Buffer Underrun Policy */
 
-#define EACS_VRA 1
-#define EACS_VRM 8
-
-#define MUTE_SHIFT 15
-
 #define REC_MASK 7
 enum {
     REC_MIC = 0,
@@ -190,8 +149,11 @@ typedef struct AC97DeviceState {
     OBJECT_CHECK(AC97DeviceState, (obj), "AC97")
 
 static void po_callback(void *opaque, int free);
+
+#ifndef XBOX
 static void pi_callback(void *opaque, int avail);
 static void mc_callback(void *opaque, int avail);
+#endif
 
 static void fetch_bd(AC97LinkState *s, AC97BusMasterRegs *r)
 {
@@ -259,7 +221,9 @@ static void voice_set_active(AC97LinkState *s, int bm_index, int on)
 {
     switch (bm_index) {
     case PI_INDEX:
+#ifndef XBOX
         AUD_set_active_in(s->voice_pi, on);
+#endif
         break;
 
     case PO_INDEX:
@@ -267,7 +231,9 @@ static void voice_set_active(AC97LinkState *s, int bm_index, int on)
         break;
 
     case MC_INDEX:
+#ifndef XBOX
         AUD_set_active_in(s->voice_mc, on);
+#endif
         break;
 
     case SO_INDEX:
@@ -335,6 +301,7 @@ static void open_voice(AC97LinkState *s, int index, int freq)
         s->invalid_freq[index] = 0;
         switch (index) {
         case PI_INDEX:
+#ifndef XBOX
             s->voice_pi = AUD_open_in(
                 &s->card,
                 s->voice_pi,
@@ -343,6 +310,7 @@ static void open_voice(AC97LinkState *s, int index, int freq)
                 pi_callback,
                 &as
                 );
+#endif
             break;
 
         case PO_INDEX:
@@ -357,6 +325,7 @@ static void open_voice(AC97LinkState *s, int index, int freq)
             break;
 
         case MC_INDEX:
+#ifndef XBOX
             s->voice_mc = AUD_open_in(
                 &s->card,
                 s->voice_mc,
@@ -365,6 +334,7 @@ static void open_voice(AC97LinkState *s, int index, int freq)
                 mc_callback,
                 &as
                 );
+#endif
             break;
 
         case SO_INDEX:
@@ -374,7 +344,9 @@ static void open_voice(AC97LinkState *s, int index, int freq)
         s->invalid_freq[index] = freq;
         switch (index) {
         case PI_INDEX:
+#ifndef XBOX
             AUD_close_in(&s->card, s->voice_pi);
+#endif
             s->voice_pi = NULL;
             break;
 
@@ -384,7 +356,9 @@ static void open_voice(AC97LinkState *s, int index, int freq)
             break;
 
         case MC_INDEX:
+#ifndef XBOX
             AUD_close_in(&s->card, s->voice_mc);
+#endif
             s->voice_mc = NULL;
             break;
 
@@ -398,17 +372,21 @@ static void reset_voices(AC97LinkState *s, uint8_t active[LAST_INDEX])
 {
     uint16_t freq;
 
+#ifndef XBOX
     freq = mixer_load(s, AC97_PCM_LR_ADC_Rate);
     open_voice(s, PI_INDEX, freq);
     AUD_set_active_in(s->voice_pi, active[PI_INDEX]);
+#endif
 
     freq = mixer_load(s, AC97_PCM_Front_DAC_Rate);
     open_voice(s, PO_INDEX, freq);
     AUD_set_active_out(s->voice_po, active[PO_INDEX]);
 
+#ifndef XBOX
     freq = mixer_load(s, AC97_MIC_ADC_Rate);
     open_voice(s, MC_INDEX, freq);
     AUD_set_active_in(s->voice_mc, active[MC_INDEX]);
+#endif
 }
 
 static void get_volume(uint16_t vol, uint16_t mask, int inverse,
@@ -449,7 +427,9 @@ static void update_volume_in(AC97LinkState *s)
     get_volume(mixer_load(s, AC97_Record_Gain_Mute), 0x0f, 0,
                &mute, &lvol, &rvol);
 
+#ifndef XBOX
     AUD_set_volume_in(s->voice_pi, mute, lvol, rvol);
+#endif
 }
 
 static void set_volume(AC97LinkState *s, int index, uint32_t val)
@@ -1013,6 +993,10 @@ static int read_audio(AC97LinkState *s, AC97BusMasterRegs *r,
     int to_copy = 0;
     SWVoiceIn *voice = (r - s->bm_regs) == MC_INDEX ? s->voice_mc : s->voice_pi;
 
+#ifdef XBOX
+    return 0;
+#endif
+
     temp = MIN(temp, max);
 
     if (!temp) {
@@ -1122,6 +1106,7 @@ static void transfer_audio(AC97LinkState *s, int index, int elapsed)
     }
 }
 
+#ifndef XBOX
 static void pi_callback(void *opaque, int avail)
 {
     transfer_audio(opaque, PI_INDEX, avail);
@@ -1131,6 +1116,7 @@ static void mc_callback(void *opaque, int avail)
 {
     transfer_audio(opaque, MC_INDEX, avail);
 }
+#endif
 
 static void po_callback(void *opaque, int free)
 {
@@ -1141,7 +1127,7 @@ static const VMStateDescription vmstate_ac97_bm_regs = {
     .name = "ac97_bm_regs",
     .version_id = 1,
     .minimum_version_id = 1,
-    .fields = (VMStateField[]) {
+    .fields = (const VMStateField[]) {
         VMSTATE_UINT32(bdbar, AC97BusMasterRegs),
         VMSTATE_UINT8(civ, AC97BusMasterRegs),
         VMSTATE_UINT8(lvi, AC97BusMasterRegs),
@@ -1189,7 +1175,7 @@ static const VMStateDescription vmstate_ac97 = {
     .version_id = 3,
     .minimum_version_id = 2,
     .post_load = ac97_post_load,
-    .fields = (VMStateField []) {
+    .fields = (const VMStateField []) {
         VMSTATE_PCI_DEVICE(dev, AC97DeviceState),
         VMSTATE_UINT32(state.glob_cnt, AC97DeviceState),
         VMSTATE_UINT32(state.glob_sta, AC97DeviceState),
@@ -1326,7 +1312,7 @@ void ac97_common_init(AC97LinkState *s, PCIDevice *pci_dev, AddressSpace *as)
   s->pci_dev = pci_dev;
   s->as = as;
 
-  AUD_register_card("ac97", &s->card);
+  AUD_register_card("ac97", &s->card, &error_fatal);
   ac97_on_reset(s);
 }
 
@@ -1405,7 +1391,7 @@ static void ac97_class_init(ObjectClass *klass, void *data)
     dc->desc = "Intel 82801AA AC97 Audio";
     dc->vmsd = &vmstate_ac97;
     device_class_set_props(dc, ac97_properties);
-    dc->reset = ac97_on_device_reset;
+    device_class_set_legacy_reset(dc, ac97_on_device_reset);
 }
 
 static const TypeInfo ac97_info = {

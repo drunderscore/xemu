@@ -10,8 +10,7 @@ import os.path
 from tarfile import TarFile
 import subprocess
 
-# MIRROR = 'http://packages.macports.org/macports/packages'
-MIRROR = 'http://nue.de.packages.macports.org/macports/packages'
+MIRROR = 'https://packages.macports.org'
 
 # FIXME: Inline macports key
 # FIXME: Move packages to archive directory to track used vs unused
@@ -19,7 +18,7 @@ MIRROR = 'http://nue.de.packages.macports.org/macports/packages'
 
 class LibInstaller:
 	DARWIN_TARGET_X64="darwin_17" # macOS 10.13
-	DARWIN_TARGET_ARM64="darwin_21" # macOS 12.x
+	DARWIN_TARGET_ARM64="darwin_22" # macOS 13.x
 
 	def __init__(self, arch):
 		self._queue = []
@@ -92,7 +91,7 @@ class LibInstaller:
 	                            shell=True, check=True)
 
 	def is_pkg_skipped(self, pkg_name):
-		return any(pkg_name.startswith(n) for n in ('python', 'ncurses'))
+		return any(pkg_name.startswith(n) for n in ('python', 'ncurses', 'mesa', 'llvm', 'libsndfile'))
 
 	def install_pkg(self, pkg_name):
 		if self.is_pkg_installed(pkg_name):
@@ -150,7 +149,9 @@ class LibInstaller:
 						if pkg_name.startswith('openssl'): # FIXME
 							new_prefix = f'prefix={self._extract_path}/opt/local/libexec/openssl11\n'
 						lines[i] = new_prefix
-						break
+					elif l.strip().startswith('Requires.private:'):
+						if pkg_name.startswith('libepoxy'):
+							lines[i] = ''
 				with open(extracted_path, 'w') as f:
 					f.write(''.join(lines))
 
@@ -185,7 +186,6 @@ def main():
 		'libsamplerate',
 		'libpixman',
 		'libepoxy',
-		'openssl11',
 		'libpcap',
 		'libslirp'])
 

@@ -3,7 +3,7 @@
  *
  * Copyright (c) 2012 espes
  * Copyright (c) 2018-2019 Jannik Vogel
- * Copyright (c) 2019-2021 Matt Borgerson
+ * Copyright (c) 2019-2025 Matt Borgerson
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -25,8 +25,10 @@
 #include <SDL.h>
 #include "hw/hw.h"
 #include "hw/pci/pci.h"
+#include "hw/pci/pci_device.h"
 #include "cpu.h"
 #include "migration/vmstate.h"
+#include "qemu/main-loop.h"
 #include "sysemu/runstate.h"
 #include "audio/audio.h"
 #include "qemu/fifo8.h"
@@ -86,7 +88,10 @@ typedef struct MCPXAPUVoiceFilter {
 } MCPXAPUVoiceFilter;
 
 typedef struct MCPXAPUState {
-    PCIDevice dev;
+    /*< private >*/
+    PCIDevice parent_obj;
+    /*< public >*/
+
     bool exiting;
     bool set_irq;
 
@@ -148,6 +153,14 @@ typedef struct MCPXAPUState {
     int64_t frame_count_time;
     int16_t apu_fifo_output[256][2]; // 1 EP frame (0x400 bytes), 8 buffered
 } MCPXAPUState;
+
+static const struct {
+    hwaddr top, current, next;
+} voice_list_regs[] = {
+    { NV_PAPU_TVL2D, NV_PAPU_CVL2D, NV_PAPU_NVL2D }, // 2D
+    { NV_PAPU_TVL3D, NV_PAPU_CVL3D, NV_PAPU_NVL3D }, // 3D
+    { NV_PAPU_TVLMP, NV_PAPU_CVLMP, NV_PAPU_NVLMP }, // MP
+};
 
 static MCPXAPUState *g_state; // Used via debug handlers
 static struct McpxApuDebug g_dbg, g_dbg_cache;
@@ -213,7 +226,7 @@ static int voice_resample(MCPXAPUState *d, uint16_t v, float samples[][2],
 static void voice_reset_filters(MCPXAPUState *d, uint16_t v);
 static void voice_process(MCPXAPUState *d,
                           float mixbins[NUM_MIXBINS][NUM_SAMPLES_PER_FRAME],
-                          uint16_t v);
+                          uint16_t v, int voice_list);
 static int voice_get_samples(MCPXAPUState *d, uint32_t v, float samples[][2],
                              int num_samples_requested);
 static void se_frame(MCPXAPUState *d);
@@ -227,7 +240,6 @@ static void mcpx_apu_vm_state_change(void *opaque, bool running, RunState state)
 static int mcpx_apu_post_save(void *opaque);
 static int mcpx_apu_pre_load(void *opaque);
 static int mcpx_apu_post_load(void *opaque, int version_id);
-static void qdev_mcpx_apu_reset(DeviceState *dev);
 static void mcpx_apu_register(void);
 static void *mcpx_apu_frame_thread(void *arg);
 
@@ -241,6 +253,7 @@ static void mcpx_debug_begin_frame(void)
 {
     for (int i = 0; i < MCPX_HW_MAX_VOICES; i++) {
         g_dbg.vp.v[i].active = false;
+        g_dbg.vp.v[i].multipass_dst_voice = 0xFFFF;
     }
 }
 
@@ -282,6 +295,19 @@ void mcpx_apu_debug_clear_isolations(void)
 static bool voice_should_mute(uint16_t v)
 {
     bool m = (g_dbg_voice_monitor >= 0) && (v != g_dbg_voice_monitor);
+
+    if (m && g_dbg_cache.vp.v[g_dbg_voice_monitor].multipass) {
+        uint8_t mp_bin = g_dbg_cache.vp.v[g_dbg_voice_monitor].multipass_bin;
+        struct McpxApuDebugVoice *d = &g_dbg_cache.vp.v[v];
+
+        for (int i = 0; i < sizeof(d->bin) / sizeof(d->bin[0]); i++) {
+            if (d->bin[i] == mp_bin) {
+                m = false;
+                break;
+            }
+        }
+    }
+
     return m || mcpx_apu_debug_is_muted(v);
 }
 
@@ -364,12 +390,12 @@ static void update_irq(MCPXAPUState *d)
         qatomic_or(&d->regs[NV_PAPU_ISTS], NV_PAPU_ISTS_GINTSTS);
         // fprintf(stderr, "mcpx irq raise ien=%08x ists=%08x\n",
         //         d->regs[NV_PAPU_IEN], d->regs[NV_PAPU_ISTS]);
-        pci_irq_assert(&d->dev);
+        pci_irq_assert(PCI_DEVICE(d));
     } else {
         qatomic_and(&d->regs[NV_PAPU_ISTS], ~NV_PAPU_ISTS_GINTSTS);
         // fprintf(stderr, "mcpx irq lower ien=%08x ists=%08x\n",
         //         d->regs[NV_PAPU_IEN], d->regs[NV_PAPU_ISTS]);
-        pci_irq_deassert(&d->dev);
+        pci_irq_deassert(PCI_DEVICE(d));
     }
 }
 
@@ -488,7 +514,7 @@ static void fe_method(MCPXAPUState *d, uint32_t method, uint32_t argument)
     case NV1BA0_PIO_SET_ANTECEDENT_VOICE:
         d->regs[NV_PAPU_FEAV] = argument;
         break;
-    case NV1BA0_PIO_VOICE_ON:
+    case NV1BA0_PIO_VOICE_ON: {
         selected_handle = argument & NV1BA0_PIO_VOICE_ON_HANDLE;
         DPRINTF("VOICE %d ON\n", selected_handle);
 
@@ -579,6 +605,7 @@ static void fe_method(MCPXAPUState *d, uint32_t method, uint32_t argument)
         }
 
         break;
+    }
     case NV1BA0_PIO_VOICE_RELEASE: {
         selected_handle = argument & NV1BA0_PIO_VOICE_ON_HANDLE;
 
@@ -1585,9 +1612,101 @@ static void voice_reset_filters(MCPXAPUState *d, uint16_t v)
     }
 }
 
+static int peek_ahead_multipass_bin(MCPXAPUState *d, uint16_t v,
+                                    uint16_t *dst_voice)
+{
+    bool first = true;
+
+    while (v != 0xFFFF) {
+        bool multipass = voice_get_mask(d, v, NV_PAVS_VOICE_CFG_FMT,
+                                        NV_PAVS_VOICE_CFG_FMT_MULTIPASS);
+        if (multipass) {
+            if (first) {
+                break;
+            }
+
+            *dst_voice = v;
+            int mp_bin = voice_get_mask(d, v, NV_PAVS_VOICE_CFG_FMT,
+                                        NV_PAVS_VOICE_CFG_FMT_MULTIPASS_BIN);
+            return mp_bin;
+        }
+
+        v = voice_get_mask(d, v, NV_PAVS_VOICE_TAR_PITCH_LINK,
+                           NV_PAVS_VOICE_TAR_PITCH_LINK_NEXT_VOICE_HANDLE);
+        first = false;
+    }
+
+    *dst_voice = 0xFFFF;
+    return -1;
+}
+
+static void dump_multipass_unused_debug_info(MCPXAPUState *d, uint16_t v)
+{
+    unsigned int sample_size = voice_get_mask(
+        d, v, NV_PAVS_VOICE_CFG_FMT, NV_PAVS_VOICE_CFG_FMT_SAMPLE_SIZE);
+    unsigned int container_size_index = voice_get_mask(
+        d, v, NV_PAVS_VOICE_CFG_FMT, NV_PAVS_VOICE_CFG_FMT_CONTAINER_SIZE);
+    bool stream = voice_get_mask(d, v, NV_PAVS_VOICE_CFG_FMT,
+                                 NV_PAVS_VOICE_CFG_FMT_DATA_TYPE);
+    bool loop =
+        voice_get_mask(d, v, NV_PAVS_VOICE_CFG_FMT, NV_PAVS_VOICE_CFG_FMT_LOOP);
+    uint32_t ebo = voice_get_mask(d, v, NV_PAVS_VOICE_PAR_NEXT,
+                                  NV_PAVS_VOICE_PAR_NEXT_EBO);
+    uint32_t cbo = voice_get_mask(d, v, NV_PAVS_VOICE_PAR_OFFSET,
+                                  NV_PAVS_VOICE_PAR_OFFSET_CBO);
+    uint32_t lbo = voice_get_mask(d, v, NV_PAVS_VOICE_CUR_PSH_SAMPLE,
+                                  NV_PAVS_VOICE_CUR_PSH_SAMPLE_LBO);
+    uint32_t ba = voice_get_mask(d, v, NV_PAVS_VOICE_CUR_PSL_START,
+                                 NV_PAVS_VOICE_CUR_PSL_START_BA);
+    bool persist = voice_get_mask(d, v, NV_PAVS_VOICE_CFG_FMT,
+                                  NV_PAVS_VOICE_CFG_FMT_PERSIST);
+    bool linked = voice_get_mask(d, v, NV_PAVS_VOICE_CFG_FMT,
+                                 NV_PAVS_VOICE_CFG_FMT_LINKED);
+
+    struct McpxApuDebugVoice *dbg = &g_dbg.vp.v[v];
+    dbg->container_size = container_size_index;
+    dbg->sample_size = sample_size;
+    dbg->stream = stream;
+    dbg->loop = loop;
+    dbg->ebo = ebo;
+    dbg->cbo = cbo;
+    dbg->lbo = lbo;
+    dbg->ba = ba;
+    dbg->samples_per_block = 0; // Value overloaded with multipass bin
+    dbg->persist = persist;
+    dbg->linked = linked;
+}
+
+static void get_multipass_samples(MCPXAPUState *d,
+                                  float mixbins[][NUM_SAMPLES_PER_FRAME],
+                                  uint16_t v, float samples[][2])
+{
+    struct McpxApuDebugVoice *dbg = &g_dbg.vp.v[v];
+
+    // DirectSound sets bin to 31, but hardware would allow other bins
+    int mp_bin = voice_get_mask(d, v, NV_PAVS_VOICE_CFG_FMT,
+                                NV_PAVS_VOICE_CFG_FMT_MULTIPASS_BIN);
+    dbg->multipass_bin = mp_bin;
+
+    for (int i = 0; i < NUM_SAMPLES_PER_FRAME; i++) {
+        samples[i][0] = mixbins[mp_bin][i];
+        samples[i][1] = mixbins[mp_bin][i];
+    }
+
+    // DirectSound sets clear mix to true
+    bool clear_mix = voice_get_mask(d, v, NV_PAVS_VOICE_CFG_FMT,
+                                    NV_PAVS_VOICE_CFG_FMT_CLEAR_MIX);
+    if (clear_mix) {
+        memset(&mixbins[mp_bin][0], 0, sizeof(mixbins[0]));
+    }
+
+    // Dump irrelevant data for audio debug UI to avoid showing stale info
+    dump_multipass_unused_debug_info(d, v);
+}
+
 static void voice_process(MCPXAPUState *d,
                           float mixbins[NUM_MIXBINS][NUM_SAMPLES_PER_FRAME],
-                          uint16_t v)
+                          uint16_t v, int voice_list)
 {
     assert(v < MCPX_HW_MAX_VOICES);
     bool stereo = voice_get_mask(d, v, NV_PAVS_VOICE_CFG_FMT,
@@ -1628,18 +1747,28 @@ static void voice_process(MCPXAPUState *d,
     assert(ea_value <= 1.0f);
 
     float samples[NUM_SAMPLES_PER_FRAME][2] = { 0 };
-    for (int sample_count = 0; sample_count < NUM_SAMPLES_PER_FRAME;) {
-        int active = voice_get_mask(d, v, NV_PAVS_VOICE_PAR_STATE,
-                                    NV_PAVS_VOICE_PAR_STATE_ACTIVE_VOICE);
-        if (!active) {
-            return;
+
+    bool multipass = voice_get_mask(d, v, NV_PAVS_VOICE_CFG_FMT,
+                                    NV_PAVS_VOICE_CFG_FMT_MULTIPASS);
+    dbg->multipass = multipass;
+
+    if (multipass) {
+        get_multipass_samples(d, mixbins, v, samples);
+    } else {
+        for (int sample_count = 0; sample_count < NUM_SAMPLES_PER_FRAME;) {
+            int active = voice_get_mask(d, v, NV_PAVS_VOICE_PAR_STATE,
+                                        NV_PAVS_VOICE_PAR_STATE_ACTIVE_VOICE);
+            if (!active) {
+                return;
+            }
+            int count =
+                voice_resample(d, v, &samples[sample_count],
+                               NUM_SAMPLES_PER_FRAME - sample_count, rate);
+            if (count < 0) {
+                break;
+            }
+            sample_count += count;
         }
-        int count = voice_resample(d, v, &samples[sample_count],
-                                   NUM_SAMPLES_PER_FRAME - sample_count, rate);
-        if (count < 0) {
-            break;
-        }
-        sample_count += count;
     }
 
     int active = voice_get_mask(d, v, NV_PAVS_VOICE_PAR_STATE,
@@ -1766,9 +1895,32 @@ static void voice_process(MCPXAPUState *d,
         /* For VP mon, simply mix all voices together here, selecting the
          * maximal volume used for any given mixbin as the overall volume for
          * this voice.
+         *
+         * If the current voice belongs to a multipass sub-voice group we must
+         * skip it here to avoid mixing it in twice because the sub-voices are
+         * mixed into the multipass bin and that sub-mix will be mixed in here
+         * later when the destination (i.e. second pass) voice is processed.
+         * TODO: Are the 2D, 3D and MP voice lists merely a DirectSound
+         *       convention? Perhaps hardware doesn't care if e.g. a multipass
+         *       voice is in the 2D or 3D list. On the other hand, MON_VP is
+         *       not how the hardware works anyway so not much point worrying
+         *       about precise emulation here. DirectSound compatibility is
+         *       enough.
          */
+        int mp_bin = -1;
+        uint16_t mp_dst_voice = 0xFFFF;
+        if (voice_list == NV1BA0_PIO_SET_ANTECEDENT_VOICE_LIST_MP_TOP - 1) {
+            mp_bin = peek_ahead_multipass_bin(d, v, &mp_dst_voice);
+        }
+        dbg->multipass_dst_voice = mp_dst_voice;
+
+        bool debug_isolation =
+            g_dbg_voice_monitor >= 0 && g_dbg_voice_monitor == v;
         float g = 0.0f;
         for (int b = 0; b < 8; b++) {
+            if (bin[b] == mp_bin && !debug_isolation) {
+                continue;
+            }
             float hr = 1 << d->vp.submix_headroom[bin[b]];
             g = fmax(g, attenuate(vol[b]) / hr);
         }
@@ -1816,6 +1968,8 @@ static int voice_get_samples(MCPXAPUState *d, uint32_t v, float samples[][2],
                                     NV_PAVS_VOICE_CFG_FMT_MULTIPASS);
     bool linked = voice_get_mask(d, v, NV_PAVS_VOICE_CFG_FMT,
                                  NV_PAVS_VOICE_CFG_FMT_LINKED); /* FIXME? */
+
+    assert(!multipass); // Multipass is handled before this
 
     int ssl_index = 0;
     int ssl_seg = 0;
@@ -1948,11 +2102,6 @@ static int voice_get_samples(MCPXAPUState *d, uint32_t v, float samples[][2],
     }
 
     DPRINTF("CBO=%d EBO=%d\n", cbo, ebo);
-
-    if (multipass) {
-        // FIXME
-        samples_per_block = 1;
-    }
 
     block_size *= samples_per_block;
 
@@ -2142,7 +2291,7 @@ static void se_frame(MCPXAPUState *d)
                     qemu_cond_wait(&d->cond, &d->lock);
                     qemu_spin_lock(&d->vp.voice_spinlocks[v]);
                 }
-                voice_process(d, mixbins, v);
+                voice_process(d, mixbins, v, list);
                 qemu_spin_unlock(&d->vp.voice_spinlocks[v]);
             }
             d->regs[current] = d->regs[next];
@@ -2231,7 +2380,7 @@ static void se_frame(MCPXAPUState *d)
         }
 
         qemu_spin_lock(&d->vp.out_buf_lock);
-        int num_bytes_free = fifo8_num_free(&d->vp.out_buf);
+        num_bytes_free = fifo8_num_free(&d->vp.out_buf);
         assert(num_bytes_free >= sizeof(d->apu_fifo_output));
         fifo8_push_all(&d->vp.out_buf, (uint8_t *)d->apu_fifo_output,
                        sizeof(d->apu_fifo_output));
@@ -2281,10 +2430,8 @@ static void mcpx_vp_out_cb(void *opaque, uint8_t *stream, int free_b)
     while (to_copy > 0) {
         uint32_t chunk_len = 0;
         qemu_spin_lock(&s->vp.out_buf_lock);
-        const uint8_t *samples =
-            fifo8_pop_buf(&s->vp.out_buf, to_copy, &chunk_len);
+        chunk_len = fifo8_pop_buf(&s->vp.out_buf, stream, to_copy);
         assert(chunk_len <= to_copy);
-        memcpy(stream, samples, chunk_len);
         qemu_spin_unlock(&s->vp.out_buf_lock);
         stream += chunk_len;
         to_copy -= chunk_len;
@@ -2314,7 +2461,7 @@ static void mcpx_apu_realize(PCIDevice *dev, Error **errp)
                           "mcpx-apu-ep", 0x10000);
     memory_region_add_subregion(&d->mmio, 0x50000, &d->ep.mmio);
 
-    pci_register_bar(&d->dev, 0, PCI_BASE_ADDRESS_SPACE_MEMORY, &d->mmio);
+    pci_register_bar(dev, 0, PCI_BASE_ADDRESS_SPACE_MEMORY, &d->mmio);
 }
 
 static void mcpx_apu_exitfn(PCIDevice *dev)
@@ -2383,9 +2530,9 @@ static int mcpx_apu_post_load(void *opaque, int version_id)
     return 0;
 }
 
-static void qdev_mcpx_apu_reset(DeviceState *dev)
+static void mcpx_apu_reset_hold(Object *obj, ResetType type)
 {
-    MCPXAPUState *d = MCPX_APU_DEVICE(dev);
+    MCPXAPUState *d = MCPX_APU_DEVICE(obj);
     mcpx_apu_reset(d);
 }
 
@@ -2432,7 +2579,7 @@ const VMStateDescription vmstate_vp_dsp_core_state = {
         VMSTATE_UINT32(num_inst, dsp_core_t),
         VMSTATE_UINT32(cur_inst_len, dsp_core_t),
         VMSTATE_UINT32(cur_inst, dsp_core_t),
-        VMSTATE_BOOL(executing_for_disasm, dsp_core_t),
+        VMSTATE_UNUSED(1),
         VMSTATE_UINT32(disasm_memory_ptr, dsp_core_t),
         VMSTATE_BOOL(exception_debugging, dsp_core_t),
         VMSTATE_UINT32(disasm_prev_inst_pc, dsp_core_t),
@@ -2482,7 +2629,7 @@ static const VMStateDescription vmstate_mcpx_apu = {
     .pre_load = mcpx_apu_pre_load,
     .post_load = mcpx_apu_post_load,
     .fields = (VMStateField[]) {
-        VMSTATE_PCI_DEVICE(dev, MCPXAPUState),
+        VMSTATE_PCI_DEVICE(parent_obj, MCPXAPUState),
         VMSTATE_STRUCT_POINTER(gp.dsp, MCPXAPUState, vmstate_vp_dsp_state,
                                DSPState),
         VMSTATE_UINT32_ARRAY(gp.regs, MCPXAPUState, 0x10000),
@@ -2506,6 +2653,7 @@ static const VMStateDescription vmstate_mcpx_apu = {
 static void mcpx_apu_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
     PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
 
     k->vendor_id = PCI_VENDOR_ID_NVIDIA;
@@ -2515,8 +2663,9 @@ static void mcpx_apu_class_init(ObjectClass *klass, void *data)
     k->realize = mcpx_apu_realize;
     k->exit = mcpx_apu_exitfn;
 
+    rc->phases.hold = mcpx_apu_reset_hold;
+
     dc->desc = "MCPX Audio Processing Unit";
-    dc->reset = qdev_mcpx_apu_reset;
     dc->vmsd = &vmstate_mcpx_apu;
 }
 
@@ -2554,9 +2703,9 @@ static void *mcpx_apu_frame_thread(void *arg)
 
         if (d->set_irq) {
             qemu_mutex_unlock(&d->lock);
-            qemu_mutex_lock_iothread();
+            bql_lock();
             update_irq(d);
-            qemu_mutex_unlock_iothread();
+            bql_unlock();
             qemu_mutex_lock(&d->lock);
             d->set_irq = false;
         }
