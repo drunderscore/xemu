@@ -4,7 +4,9 @@
 
 extern "C" {
 CPUState *qemu_get_cpu(int index);
-#include "exec/cpu-common.h"
+#include "exec/vaddr.h"
+int cpu_memory_rw_debug(CPUState *cpu, vaddr addr, void *ptr, size_t len,
+                        bool is_write);
 }
 
 DebugTSSMWindow tssm_window;
