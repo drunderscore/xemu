@@ -414,7 +414,7 @@ void DebugTSSMWindow::Draw()
                 }
 
                 if (ImGui::BeginTabItem(tab_title)) {
-                    if (ImGui::BeginTable("State", 2,
+                    if (ImGui::BeginTable("Depth", 2,
                                           ImGuiTableFlags_RowBg |
                                               ImGuiTableFlags_Borders)) {
                         ImGui::TableNextColumn();
@@ -485,7 +485,7 @@ void DebugTSSMWindow::Draw()
         strcpy(scene_id, "None");
 
     char text_buffer[64];
-    sprintf(text_buffer, "Scene %s##Scene", scene_id);
+    sprintf(text_buffer, "Scene %s###Scene", scene_id);
 
     if (ImGui::Begin(text_buffer)) {
         if (ImGui::BeginTable(
