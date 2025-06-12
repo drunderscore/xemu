@@ -8,7 +8,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-      with:
+        with:
         submodules: recursive
 
       - name: Build
