@@ -788,12 +788,16 @@ void DebugTSSMWindow::Draw()
                     }
 
                     ImGui::Separator();
+                    auto pressed_l3 =
+                        ImGui::IsKeyPressed(ImGuiKey_GamepadL3, false);
                     if (ImGui::Button(
                             "Resolve",
-                            ImVec2(ImGui::GetContentRegionAvail().x, 0.0f)))
+                            ImVec2(ImGui::GetContentRegionAvail().x, 0.0f)) ||
+                        pressed_l3) {
                         write_guest_infallible(incrediball_ptr + 0x4C,
                                                incrediball.Flags &
                                                    ~(0b0000'0001));
+                    }
                 }
             } else {
                 ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f),
