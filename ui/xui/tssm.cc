@@ -340,6 +340,92 @@ enum BaseFlags : U16 {
     ReceiveShadows = 1 << 4,
 };
 
+struct xColor_tag {
+    unsigned char r; // offset 0x0, size 0x1
+    unsigned char g; // offset 0x1, size 0x1
+    unsigned char b; // offset 0x2, size 0x1
+    unsigned char a; // offset 0x3, size 0x1
+};
+
+struct _xFadeData {
+    // total size: 0x18
+    unsigned char active; // offset 0x0, size 0x1
+    unsigned char hold_at_dest; // offset 0x1, size 0x1
+    xColor_tag src; // offset 0x2, size 0x4
+    xColor_tag dest; // offset 0x6, size 0x4
+    float time_passed; // offset 0xC, size 0x4
+    float time_total; // offset 0x10, size 0x4
+    xColor_tag current_color; // offset 0x14, size 0x4
+};
+
+struct xModelPipe {
+    // total size: 0x8
+    unsigned int Flags; // offset 0x0, size 0x4
+    unsigned char Layer; // offset 0x4, size 0x1
+    unsigned char AlphaDiscard; // offset 0x5, size 0x1
+    unsigned short PipePad; // offset 0x6, size 0x2
+};
+
+struct xVec3 {
+    float x; // offset 0x0, size 0x4
+    float y; // offset 0x4, size 0x4
+    float z; // offset 0x8, size 0x4
+};
+
+struct xBox {
+    // total size: 0x18
+    struct xVec3 upper; // offset 0x0, size 0xC
+    struct xVec3 lower; // offset 0xC, size 0xC
+};
+
+typedef void xModelPool;
+typedef void xAnimPlay;
+typedef void RpAtomic;
+typedef void xSurface;
+typedef void xModelBucket;
+typedef void xLightKit;
+typedef void RwMatrixTag;
+
+struct xModelInstance {
+    // total size: 0xA4
+    guest_ptr<xModelInstance> Next; // offset 0x0, size 0x4
+    guest_ptr<xModelInstance> Parent; // offset 0x4, size 0x4
+    guest_ptr<xModelPool> Pool; // offset 0x8, size 0x4
+    guest_ptr<xAnimPlay> Anim; // offset 0xC, size 0x4
+    guest_ptr<RpAtomic> Data; // offset 0x10, size 0x4
+    struct xModelPipe Pipe; // offset 0x14, size 0x8
+    unsigned char InFrustum; // offset 0x1C, size 0x1
+    unsigned char TrueClip; // offset 0x1D, size 0x1
+    signed char sortBias; // offset 0x1E, size 0x1
+    unsigned char modelpad; // offset 0x1F, size 0x1
+    float RedMultiplier; // offset 0x20, size 0x4
+    float GreenMultiplier; // offset 0x24, size 0x4
+    float BlueMultiplier; // offset 0x28, size 0x4
+    float Alpha; // offset 0x2C, size 0x4
+    float FadeStart; // offset 0x30, size 0x4
+    float FadeEnd; // offset 0x34, size 0x4
+    guest_ptr<xSurface> Surf; // offset 0x38, size 0x4
+    guest_ptr<guest_ptr<xModelBucket>> Bucket; // offset 0x3C, size 0x4
+    guest_ptr<xModelInstance> BucketNext; // offset 0x40, size 0x4
+    guest_ptr<xLightKit> LightKit; // offset 0x44, size 0x4
+    guest_ptr<void> Object; // offset 0x48, size 0x4
+    unsigned short Flags; // offset 0x4C, size 0x2
+    unsigned char BoneCount; // offset 0x4E, size 0x1
+    unsigned char BoneIndex; // offset 0x4F, size 0x1
+    guest_ptr<unsigned char> BoneRemap; // offset 0x50, size 0x4
+    guest_ptr<RwMatrixTag> Mat; // offset 0x54, size 0x4
+    struct xVec3 Scale; // offset 0x58, size 0xC
+    struct xBox animBound; // offset 0x64, size 0x18
+    struct xBox combinedAnimBound; // offset 0x7C, size 0x18
+    unsigned int modelID; // offset 0x94, size 0x4
+    unsigned int shadowID; // offset 0x98, size 0x4
+    guest_ptr<RpAtomic> shadowmapAtomic; // offset 0x9C, size 0x4
+    struct /* @struct */ {
+        // total size: 0x4
+        guest_ptr<xVec3> verts; // offset 0x0, size 0x4
+    } anim_coll; // offset 0xA0, size 0x4
+};
+
 const char *base_flag_names[] = { "Enabled", "Persistent", "Valid",
                                   "VisibleDuringCutscenes", "ReceiveShadows" };
 
@@ -593,6 +679,126 @@ void DebugTSSMWindow::Draw()
             }
 
             ImGui::EndTable();
+        }
+    }
+
+    ImGui::End();
+
+    if (ImGui::Begin("Special")) {
+        constexpr const char *game_mode_names[] = {
+            "Boot",  "Intro",    "Title",          "Start",
+            "Load",  "Options",  "Save",           "Pause",
+            "Stall", "WorldMap", "MonsterGallery", "ConceptArtGallery",
+            "Game"
+        };
+
+        auto game_mode = read_guest_infallible<U32>(0x00309484);
+        ImGui::Text("gGameMode: %d", game_mode);
+
+        if (game_mode < sizeof(game_mode_names)) {
+            ImGui::SameLine();
+            ImGui::Text("%s", game_mode_names[game_mode]);
+        }
+
+        auto game_state = read_guest_infallible<U32>(0x002b5380);
+        ImGui::Text("gGameState: %d", game_state);
+
+        ImGui::Separator();
+
+        auto time_current = read_guest_infallible<U32>(0x00309340);
+        ImGui::Text("sTimeCurrent: %d", time_current);
+
+        auto time_elapsed = read_guest_infallible<float>(0x00309330);
+        ImGui::Text("sTimeElapsed: %f", time_elapsed);
+
+        auto real_time_elapsed = read_guest_infallible<float>(0x00309334);
+        ImGui::Text("sRealTimeElapsed: %f", real_time_elapsed);
+
+        auto gloop_ct = read_guest_infallible<U32>(0x003093d0);
+        ImGui::Text("gloop_ct: %d", gloop_ct);
+
+        m_frame_times.push_back(time_elapsed);
+        if (m_frame_times.size() > 60 * 10)
+            m_frame_times.erase(m_frame_times.begin());
+
+        ImGui::PlotLines("Frame Time", m_frame_times.data(),
+                         m_frame_times.size());
+
+        ImGui::Separator();
+
+        auto fade = read_guest_infallible<_xFadeData>(0x00455418);
+        ImGui::Text("Fade: %s", fade.active ? "true" : "false");
+        ImGui::Text("Hold: %d", fade.hold_at_dest);
+        ImGui::Text("Remaining: %f", fade.time_total - fade.time_passed);
+    }
+
+    ImGui::End();
+
+    if (ImGui::Begin("Bowl Storage", {}, ImGuiWindowFlags_AlwaysAutoResize)) {
+        auto incrediball_ptr =
+            read_guest_infallible<guest_ptr<xModelInstance>>(0x00317234);
+        ImGui::Text("Model pointer: 0x%x", incrediball_ptr);
+
+        ImGui::Separator();
+
+        auto active = read_guest_infallible<bool>(0x00317238);
+        if (!active) {
+            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f),
+                               "No bowl active");
+        } else {
+            auto incrediball =
+                read_guest_infallible<xModelInstance>(incrediball_ptr);
+
+            if ((incrediball.Flags & 0x401) == 1) {
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f),
+                                   "Problematic flags 0x%x", incrediball.Flags);
+
+                if (incrediball.BoneCount != 0) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f),
+                                       "Problematic bone count %d -- relying "
+                                       "on frustum cull avoidance",
+                                       incrediball.BoneCount);
+
+                    ImGui::Separator();
+
+                    if (ImGui::InputFloat3("Upper Animation Bounds",
+                                           &incrediball.animBound.upper.x)) {
+                        write_guest_infallible(incrediball_ptr + 0x64 + 0x0 +
+                                                   0x0,
+                                               incrediball.animBound.upper.x);
+                        write_guest_infallible(incrediball_ptr + 0x64 + 0x0 +
+                                                   0x4,
+                                               incrediball.animBound.upper.y);
+                        write_guest_infallible(incrediball_ptr + 0x64 + 0x0 +
+                                                   0x8,
+                                               incrediball.animBound.upper.z);
+                    }
+
+                    if (ImGui::InputFloat3("Lower Animation Bounds",
+                                           &incrediball.animBound.lower.x)) {
+                        write_guest_infallible(incrediball_ptr + 0x64 + 0xC +
+                                                   0x0,
+                                               incrediball.animBound.lower.x);
+                        write_guest_infallible(incrediball_ptr + 0x64 + 0xC +
+                                                   0x4,
+                                               incrediball.animBound.lower.y);
+                        write_guest_infallible(incrediball_ptr + 0x64 + 0xC +
+                                                   0x8,
+                                               incrediball.animBound.lower.z);
+                    }
+
+                    ImGui::Separator();
+                    if (ImGui::Button(
+                            "Resolve",
+                            ImVec2(ImGui::GetContentRegionAvail().x, 0.0f)))
+                        write_guest_infallible(incrediball_ptr + 0x4C,
+                                               incrediball.Flags &
+                                                   ~(0b0000'0001));
+                }
+            } else {
+                ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f),
+                                   "No issues likely storing this bowl");
+            }
         }
     }
 

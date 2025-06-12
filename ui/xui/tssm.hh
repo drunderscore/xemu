@@ -22,6 +22,7 @@
 #include "imgui.h"
 #include "imgui_memory_editor.h"
 #include <optional>
+#include <vector>
 
 class DebugTSSMWindow {
 public:
@@ -33,6 +34,7 @@ public:
 private:
     MemoryEditor m_memory_editor;
     std::optional<unsigned short> m_selected_base_index{};
+    std::vector<float> m_frame_times;
 };
 
 extern DebugTSSMWindow tssm_window;
