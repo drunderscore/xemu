@@ -72,8 +72,8 @@ void InputManager::Update()
     MAP_BUTTON(ImGuiKey_GamepadR1,              CONTROLLER_BUTTON_BLACK);
     //MAP_ANALOG(ImGuiKey_GamepadL2,              SDL_CONTROLLER_AXIS_TRIGGERLEFT,  0.0f, 32767);
     //MAP_ANALOG(ImGuiKey_GamepadR2,              SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 0.0f, 32767);
-    //MAP_BUTTON(ImGuiKey_GamepadL3,              SDL_CONTROLLER_BUTTON_LEFTSTICK);
-    //MAP_BUTTON(ImGuiKey_GamepadR3,              SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+    MAP_BUTTON(ImGuiKey_GamepadL3,              CONTROLLER_BUTTON_LSTICK);
+    MAP_BUTTON(ImGuiKey_GamepadR3,              CONTROLLER_BUTTON_RSTICK);
     MAP_ANALOG(ImGuiKey_GamepadLStickLeft,  CONTROLLER_AXIS_LSTICK_X, -thumb_dead_zone, -32768);
     MAP_ANALOG(ImGuiKey_GamepadLStickRight, CONTROLLER_AXIS_LSTICK_X, +thumb_dead_zone, +32767);
     MAP_ANALOG(ImGuiKey_GamepadLStickUp,    CONTROLLER_AXIS_LSTICK_Y, +thumb_dead_zone, +32768);
