@@ -5,11 +5,16 @@ on: push
 jobs:
   windows-cross:
     runs-on: ubuntu-latest
+
     steps:
+      - uses: actions/checkout@v3
+        submodules: recursive
+
       - name: Build
         run: |
           docker pull ghcr.io/xemu-project/xemu-win64-toolchain:sha-0d06ce8
           docker run -v $PWD:/xemu -w /xemu ghcr.io/xemu-project/xemu-win64-toolchain:sha-0d06ce8 bash -c "./build.sh -p win64-cross"
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
