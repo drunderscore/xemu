@@ -143,7 +143,6 @@ void xemu_hud_init(SDL_Window* window, void* sdl_gl_context)
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
-    io.IniFilename = NULL;
 
     // Setup Platform/Renderer bindings
     ImGui_ImplSDL2_InitForOpenGL(window, sdl_gl_context);
