@@ -426,6 +426,87 @@ struct xModelInstance {
     } anim_coll; // offset 0xA0, size 0x4
 };
 
+struct xBaseAsset {
+    unsigned int id; // offset 0x0, size 0x4
+    unsigned char baseType; // offset 0x4, size 0x1
+    unsigned char linkCount; // offset 0x5, size 0x1
+    unsigned short baseFlags; // offset 0x6, size 0x2
+};
+
+struct xDynAsset {
+    xBaseAsset base;
+    unsigned int type; // offset 0x8, size 0x4
+    unsigned short version; // offset 0xC, size 0x2
+    unsigned short handle; // offset 0xE, size 0x2
+};
+
+struct asset_type {
+    xDynAsset base;
+    unsigned char persistent : 8; // offset 0x10, size 0x1
+    unsigned char loop : 8; // offset 0x11, size 0x1
+    unsigned char enable : 8; // offset 0x12, size 0x1
+    unsigned char retry : 8; // offset 0x13, size 0x1
+    unsigned int talk_box; // offset 0x14, size 0x4
+    unsigned int next_task; // offset 0x18, size 0x4
+    unsigned int stages[6]; // offset 0x1C, size 0x18
+};
+
+enum state_enum : int {
+    STATE_INVALID = -1,
+    STATE_BEGIN = 0,
+    STATE_DESCRIPTION = 1,
+    STATE_REMINDER = 2,
+    STATE_SUCCESS = 3,
+    STATE_FAILURE = 4,
+    STATE_END = 5,
+    MAX_STATE = 6,
+};
+
+const char *task_box_state_names[] = { "Begin",   "Description", "Reminder",
+                                       "Success", "Failure",     "End" };
+
+struct ztaskbox {
+    xBase base;
+    // there is some kind of anonymous struct here called "flag", but thats so
+    // stupid i'm removing it. fucks everyone up.
+    unsigned char enabled;
+    unsigned char running;
+    unsigned short dummy;
+    int pad;
+    guest_ptr<asset_type> asset; // offset 0x14, size 0x4
+    state_enum state; // offset 0x18, size 0x4
+    guest_ptr<void> cb; // offset 0x1C, size 0x4
+    guest_ptr<ztaskbox> current; // offset 0x20, size 0x4
+};
+
+struct xTimerAsset {
+    xBaseAsset base;
+    float seconds; // offset 0x8, size 0x4
+    float randomRange; // offset 0xC, size 0x4
+};
+
+struct xTimer {
+    xBase base;
+    guest_ptr<xTimerAsset> tasset; // offset 0x10, size 0x4
+    unsigned char state; // offset 0x14, size 0x1
+    unsigned char runsInPause; // offset 0x15, size 0x1
+    unsigned short flags; // offset 0x16, size 0x2
+    float secondsLeft; // offset 0x18, size 0x4
+};
+
+struct xCounterAsset {
+    xBaseAsset base;
+    signed short count; // offset 0x8, size 0x2
+};
+
+struct _xCounter {
+    xBase base;
+    guest_ptr<xCounterAsset> asset; // offset 0x10, size 0x4
+    signed short count; // offset 0x14, size 0x2
+    unsigned char state; // offset 0x16, size 0x1
+    unsigned char pad; // offset 0x17, size 0x1
+};
+
 const char *base_flag_names[] = { "Enabled", "Persistent", "Valid",
                                   "VisibleDuringCutscenes", "ReceiveShadows" };
 
@@ -590,7 +671,7 @@ void DebugTSSMWindow::Draw()
                 auto base = read_guest_infallible<xBase>(base_ptr);
 
                 ImGui::TableNextColumn();
-                sprintf(text_buffer, "0x%x", base.id);
+                sprintf(text_buffer, "0x%x##ID", base.id);
 
                 if (ImGui::Selectable(text_buffer, false)) {
                     m_selected_base_index = i;
@@ -629,7 +710,7 @@ void DebugTSSMWindow::Draw()
                 ImGui::TableNextColumn();
                 ImGui::Text("%d", base.linkCount);
                 ImGui::TableNextColumn();
-                sprintf(text_buffer, "0x%x", base.baseFlags);
+                sprintf(text_buffer, "0x%x##BaseFlags", base.baseFlags);
 
                 if (ImGui::Selectable(text_buffer, false)) {
                     m_selected_base_index = i;
@@ -802,6 +883,95 @@ void DebugTSSMWindow::Draw()
             } else {
                 ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f),
                                    "No issues likely storing this bowl");
+            }
+        }
+    }
+
+    ImGui::End();
+
+    if (ImGui::Begin("Funny Numbers")) {
+        for (auto i = 0u; i < scene.num_base; i++) {
+            auto base_ptr = read_guest_infallible<guest_ptr<xBase>>(
+                scene.base + (sizeof(guest_ptr<xBase>) * i));
+
+            auto base = read_guest_infallible<xBase>(base_ptr);
+
+            if (base.baseType == eBaseTypeTaskBox) {
+                ImGui::PushID(i);
+                // We'll have to re-read this object from the guest, we didn't
+                // read enough originally which means we've sliced it.
+                auto task_box = read_guest_infallible<ztaskbox>(base_ptr);
+                ImGui::Text("TaskBox @ 0x%x (asset 0x%x)", base_ptr, base.id);
+                ImGui::Text("State 0x%x", task_box.state);
+                if (task_box.state >= 0 && task_box.state < MAX_STATE) {
+                    ImGui::SameLine();
+                    ImGui::Text("%s", task_box_state_names[task_box.state]);
+                }
+                if (ImGui::InputInt("State",
+                                    reinterpret_cast<int *>(&task_box.state))) {
+                    write_guest_infallible(base_ptr + 32,
+                                           static_cast<int>(task_box.state));
+                }
+                ImGui::Text("Enabled: %s", task_box.enabled ? "true" : "false");
+                ImGui::Text("Running: %s", task_box.running ? "true" : "false");
+
+                auto is_this_current = base_ptr == task_box.current;
+
+                if (is_this_current)
+                    ImGui::PushStyleColor(ImGuiCol_Text,
+                                          ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
+                ImGui::Text("Current: 0x%x", task_box.current);
+                if (is_this_current)
+                    ImGui::PopStyleColor();
+
+                auto task_box_asset =
+                    read_guest_infallible<asset_type>(task_box.asset);
+
+                ImGui::Text("Asset: Persistent: %d", task_box_asset.persistent);
+                ImGui::Text("Asset: Loop: %d", task_box_asset.loop);
+                ImGui::Text("Asset: Enable: %d", task_box_asset.enable);
+                ImGui::Text("Asset: Retry: %d", task_box_asset.retry);
+                ImGui::Text("Asset: Talk Box: 0x%x", task_box_asset.talk_box);
+                ImGui::Text("Asset: Next Task: 0x%x", task_box_asset.next_task);
+
+                for (auto j = 0; j < 6; j++)
+                    ImGui::Text("Asset: Stage %s: 0x%x",
+                                task_box_state_names[j],
+                                task_box_asset.stages[j]);
+
+                ImGui::Separator();
+                ImGui::PopID();
+            } else if (base.baseType == eBaseTypeTimer) {
+                ImGui::Text("Timer @ 0x%x (asset 0x%x)", base_ptr, base.id);
+                // We'll have to re-read this object from the guest, we didn't
+                // read enough originally which means we've sliced it.
+                auto timer = read_guest_infallible<xTimer>(base_ptr);
+                ImGui::Text("Flags: 0x%x", timer.flags);
+                ImGui::Text("Runs in Pause: %s",
+                            timer.runsInPause ? "true" : "false");
+                ImGui::Text("Seconds Left: %f", timer.secondsLeft);
+                ImGui::Text("State: 0x%x", timer.state);
+
+                auto timer_asset =
+                    read_guest_infallible<xTimerAsset>(timer.tasset);
+                ImGui::Text("Asset: Random Range: %f", timer_asset.randomRange);
+                ImGui::Text("Asset: Seconds: %f", timer_asset.seconds);
+
+                ImGui::Separator();
+            } else if (base.baseType == eBaseTypeCounter) {
+                ImGui::Text("Counter @ 0x%x (asset 0x%x)", base_ptr, base.id);
+                // We'll have to re-read this object from the guest, we didn't
+                // read enough originally which means we've sliced it.
+                auto counter = read_guest_infallible<_xCounter>(base_ptr);
+                ImGui::Text("Count: %d", counter.count);
+                ImGui::Text("Pad?: %d", counter.pad);
+                ImGui::Text("State: %d", counter.state);
+
+                auto counter_asset =
+                    read_guest_infallible<xCounterAsset>(counter.asset);
+                ImGui::Text("Asset: Count: %d", counter_asset.count);
+
+                ImGui::Separator();
             }
         }
     }
