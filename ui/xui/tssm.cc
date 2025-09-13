@@ -308,29 +308,92 @@ struct xBase {
     guest_ptr<xBaseEventCB> eventFunc;
 };
 
-struct xEnt : xBase {};
+using uchar = unsigned char;
+struct xGrid;
 
-struct xScene {
-    U32 sceneID;
-    U16 flags;
-    U16 num_trigs;
-    U16 num_stats;
-    U16 num_dyns;
-    U16 num_npcs;
-    U16 num_act_ents;
-    char _padding[24];
-    guest_ptr<guest_ptr<xEnt>> trigs;
-    guest_ptr<guest_ptr<xEnt>> stats;
-    guest_ptr<guest_ptr<xEnt>> dyns;
-    guest_ptr<guest_ptr<xEnt>> npcs;
-    guest_ptr<guest_ptr<xEnt>> act_ents;
-    char _padding2[48]; // FIXME: How long is this versus zScene?
+struct xGridBound {
+    guest_ptr<void> data;
+    ushort gx;
+    ushort gz;
+    uchar oversize;
+    uchar deleted;
+    uchar gpad;
+    uchar pad;
+    guest_ptr<xGrid> grid;
+    guest_ptr<guest_ptr<xGridBound>> head;
+    guest_ptr<xGridBound> next;
 };
 
-struct zScene : xScene {
-    U32 num_base;
-    guest_ptr<guest_ptr<xBase>> base;
+struct xVec3 {
+    float x;
+    float y;
+    float z;
 };
+
+struct xQCData {
+    char xmin;
+    char ymin;
+    char zmin;
+    char zmin_dup;
+    char xmax;
+    char ymax;
+    char zmax;
+    char zmax_dup;
+    xVec3 min;
+    xVec3 max;
+};
+
+struct xSphere {
+    xVec3 center;
+    float r;
+};
+
+struct xBox {
+    // total size: 0x18
+    xVec3 upper; // offset 0x0, size 0xC
+    xVec3 lower; // offset 0xC, size 0xC
+};
+
+struct xCylinder {
+    xVec3 center;
+    float r;
+    float h;
+};
+
+struct xBBox {
+    xVec3 center;
+    xBox box;
+};
+
+union _union_151 {
+    xSphere sph;
+    xBBox box;
+    xCylinder cyl;
+};
+
+struct xMat3x3 {
+    xVec3 right; // offset 0x0, size 0xC
+    signed int flags; // offset 0xC, size 0x4
+    xVec3 up; // offset 0x10, size 0xC
+    unsigned int pad1; // offset 0x1C, size 0x4
+    xVec3 at; // offset 0x20, size 0xC
+    unsigned int pad2; // offset 0x2C, size 0x4
+};
+
+struct xMat4x3 : xMat3x3 {
+    xVec3 pos; // offset 0x30, size 0xC
+    unsigned int pad3; // offset 0x3C, size 0x4
+};
+
+struct xBound {
+    xQCData qcd;
+    uchar type;
+    uchar pad[3];
+    _union_151 field3_0x24;
+    guest_ptr<xMat4x3> mat;
+};
+
+struct xEntAsset;
 
 enum BaseFlags : U16 {
     Enabled = 1 << 0,
@@ -364,18 +427,6 @@ struct xModelPipe {
     unsigned char Layer; // offset 0x4, size 0x1
     unsigned char AlphaDiscard; // offset 0x5, size 0x1
     unsigned short PipePad; // offset 0x6, size 0x2
-};
-
-struct xVec3 {
-    float x; // offset 0x0, size 0x4
-    float y; // offset 0x4, size 0x4
-    float z; // offset 0x8, size 0x4
-};
-
-struct xBox {
-    // total size: 0x18
-    struct xVec3 upper; // offset 0x0, size 0xC
-    struct xVec3 lower; // offset 0xC, size 0xC
 };
 
 typedef void xModelPool;
@@ -460,6 +511,101 @@ enum state_enum : int {
     STATE_FAILURE = 4,
     STATE_END = 5,
     MAX_STATE = 6,
+};
+
+struct xEntFrame;
+struct xEntCollis;
+struct xFFX;
+struct xShadowSimpleCache;
+struct xEntShadow;
+struct anim_coll_data;
+
+struct xRot {
+    xVec3 axis; // offset 0x0, size 0xC
+    float angle; // offset 0xC, size 0x4
+};
+
+struct xEntFrame {
+    xMat4x3 mat; // offset 0x0, size 0x40
+    xMat4x3 oldmat; // offset 0x40, size 0x40
+    xVec3 oldvel; // offset 0x80, size 0xC
+    xRot oldrot; // offset 0x8C, size 0x10
+    xRot drot; // offset 0x9C, size 0x10
+    xRot rot; // offset 0xAC, size 0x10
+    xVec3 dvel; // offset 0xBC, size 0xC
+    xVec3 vel; // offset 0xC8, size 0xC
+    unsigned int mode; // offset 0xD4, size 0x4
+    xVec3 dpos; // offset 0xD8, size 0xC
+};
+
+struct xEnt {
+    xBase base;
+    guest_ptr<xEntAsset> asset;
+    ushort idx;
+    uchar flags;
+    uchar miscflags;
+    uchar subType;
+    uchar pflags;
+    ushort moreFlags;
+    uchar _isCulled : 2;
+    uchar collisionEventReceived : 2;
+    uchar driving_count;
+    uchar num_ffx;
+    uchar collType;
+    uchar collLev;
+    uchar chkby;
+    uchar penby;
+    // void (*visUpdate)(struct xEnt *);
+    guest_ptr<void> visUpdate;
+    guest_ptr<xModelInstance> model;
+    guest_ptr<xModelInstance> collModel;
+    guest_ptr<xModelInstance> camcollModel;
+    // void (*update)(struct xEnt *, struct xScene *, float);
+    // void (*endUpdate)(struct xEnt *, struct xScene *, float);
+    // void (*bupdate)(struct xEnt *, struct xVec3 *);
+    // void (*move)(struct xEnt *, struct xScene *, float, struct xEntFrame *);
+    // void (*render)(struct xEnt *);
+    guest_ptr<void> update;
+    guest_ptr<void> endUpdate;
+    guest_ptr<void> bupdate;
+    guest_ptr<void> move;
+    guest_ptr<void> render;
+    guest_ptr<xEntFrame> frame;
+    guest_ptr<xEntCollis> collis;
+    xGridBound gridb;
+    xBound bound;
+    // void (*transl)(struct xEnt *, struct xVec3 *, struct xMat4x3 *);
+    guest_ptr<void> transl;
+    guest_ptr<xFFX> ffx;
+    guest_ptr<xEnt> driver;
+    guest_ptr<xEnt> driven;
+    int driveMode;
+    guest_ptr<xShadowSimpleCache> simpShadow;
+    guest_ptr<xEntShadow> entShadow;
+    guest_ptr<anim_coll_data> anim_coll;
+    guest_ptr<void> user_data;
+};
+
+struct xScene {
+    U32 sceneID;
+    U16 flags;
+    U16 num_trigs;
+    U16 num_stats;
+    U16 num_dyns;
+    U16 num_npcs;
+    U16 num_act_ents;
+    char _padding[24];
+    guest_ptr<guest_ptr<xEnt>> trigs;
+    guest_ptr<guest_ptr<xEnt>> stats;
+    guest_ptr<guest_ptr<xEnt>> dyns;
+    guest_ptr<guest_ptr<xEnt>> npcs;
+    guest_ptr<guest_ptr<xEnt>> act_ents;
+    char _padding2[48]; // FIXME: How long is this versus zScene?
+};
+
+struct zScene : xScene {
+    U32 num_base;
+    guest_ptr<guest_ptr<xBase>> base;
 };
 
 const char *task_box_state_names[] = { "Begin",   "Description", "Reminder",
@@ -655,112 +801,131 @@ void DebugTSSMWindow::Draw()
     sprintf(text_buffer, "Scene %s###Scene", scene_id);
 
     if (ImGui::Begin(text_buffer)) {
-        if (ImGui::BeginTable(
-                "Bases", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders)) {
-            ImGui::TableSetupColumn("ID");
-            ImGui::TableSetupColumn("Type");
-            ImGui::TableSetupColumn("Links");
-            ImGui::TableSetupColumn("Flags");
-            ImGui::TableHeadersRow();
+        auto content_region_available_at_start = ImGui::GetContentRegionAvail();
 
-            for (auto i = 0u; i < scene.num_base; i++) {
-                ImGui::PushID(i);
-                auto base_ptr = read_guest_infallible<guest_ptr<xBase>>(
-                    scene.base + (sizeof(guest_ptr<xBase>) * i));
+        if (ImGui::BeginChild(
+                "Bases",
+                ImVec2(0, content_region_available_at_start.y * 0.8f))) {
+            if (ImGui::BeginTable("Bases", 4,
+                                  ImGuiTableFlags_RowBg |
+                                      ImGuiTableFlags_Borders)) {
+                ImGui::TableSetupColumn("ID");
+                ImGui::TableSetupColumn("Type");
+                ImGui::TableSetupColumn("Links");
+                ImGui::TableSetupColumn("Flags");
+                ImGui::TableHeadersRow();
 
-                auto base = read_guest_infallible<xBase>(base_ptr);
+                for (auto i = 0u; i < scene.num_base; i++) {
+                    ImGui::PushID(i);
+                    auto base_ptr = read_guest_infallible<guest_ptr<xBase>>(
+                        scene.base + (sizeof(guest_ptr<xBase>) * i));
 
-                ImGui::TableNextColumn();
-                sprintf(text_buffer, "0x%x##ID", base.id);
+                    auto base = read_guest_infallible<xBase>(base_ptr);
 
-                if (ImGui::Selectable(text_buffer, false)) {
-                    m_selected_base_index = i;
-                    ImGui::OpenPopup("SelectedBaseIDPopup");
-                }
+                    ImGui::TableNextColumn();
+                    sprintf(text_buffer, "0x%x##ID", base.id);
 
-                if (ImGui::BeginPopup("SelectedBaseIDPopup")) {
-                    if (m_selected_base_index < scene.num_base) {
-                        auto base_ptr = read_guest_infallible<guest_ptr<xBase>>(
-                            scene.base + (sizeof(guest_ptr<xBase>) *
-                                          *m_selected_base_index));
-
-                        if (ImGui::Selectable("Goto in memory"))
-                            m_memory_editor.GotoAddr = base_ptr;
-                    } else {
-                        m_selected_base_index.reset();
+                    if (ImGui::Selectable(text_buffer, false)) {
+                        m_selected_base_index = i;
+                        ImGui::OpenPopup("SelectedBaseIDPopup");
                     }
 
-                    ImGui::EndPopup();
-                }
+                    if (ImGui::BeginPopup("SelectedBaseIDPopup")) {
+                        if (m_selected_base_index < scene.num_base) {
+                            auto base_ptr =
+                                read_guest_infallible<guest_ptr<xBase>>(
+                                    scene.base + (sizeof(guest_ptr<xBase>) *
+                                                  *m_selected_base_index));
 
-                ImGui::TableNextColumn();
+                            if (ImGui::Selectable("Goto in memory"))
+                                m_memory_editor.GotoAddr = base_ptr;
+                        } else {
+                            m_selected_base_index.reset();
+                        }
 
-                const char *base_type_name;
-                if (base.baseType >= eBaseTypeCount)
-                    base_type_name = base_type_names[eBaseTypeUnknown];
-                else
-                    base_type_name = base_type_names[base.baseType];
-                ImGui::Text("%s", base_type_name);
-
-                if (ImGui::BeginItemTooltip()) {
-                    ImGui::Text("0x%x", base.baseType);
-                    ImGui::EndTooltip();
-                }
-
-                ImGui::TableNextColumn();
-                ImGui::Text("%d", base.linkCount);
-                ImGui::TableNextColumn();
-                sprintf(text_buffer, "0x%x##BaseFlags", base.baseFlags);
-
-                if (ImGui::Selectable(text_buffer, false)) {
-                    m_selected_base_index = i;
-                    ImGui::OpenPopup("SelectedBaseFlagsPopup");
-                }
-
-
-                if (ImGui::BeginPopup("SelectedBaseFlagsPopup")) {
-                    if (m_selected_base_index < scene.num_base) {
-                        auto base_ptr = read_guest_infallible<guest_ptr<xBase>>(
-                            scene.base + (sizeof(guest_ptr<xBase>) *
-                                          *m_selected_base_index));
-
-
-                        auto base = read_guest_infallible<xBase>(base_ptr);
-
-                        auto modified = false;
-
-                        modified |= ImGui::CheckboxFlagsT<U16>(
-                            "Enabled", &base.baseFlags, BaseFlags::Enabled);
-                        modified |= ImGui::CheckboxFlagsT<U16>(
-                            "Persistent", &base.baseFlags,
-                            BaseFlags::Persistent);
-                        modified |= ImGui::CheckboxFlagsT<U16>(
-                            "Valid", &base.baseFlags, BaseFlags::Valid);
-                        modified |= ImGui::CheckboxFlagsT<U16>(
-                            "Visible During Cutscenes", &base.baseFlags,
-                            BaseFlags::VisibleDuringCutscenes);
-                        modified |= ImGui::CheckboxFlagsT<U16>(
-                            "Receive Shadows", &base.baseFlags,
-                            BaseFlags::ReceiveShadows);
-
-                        if (modified)
-                            write_guest_infallible(
-                                reinterpret_cast<vaddr>(
-                                    &reinterpret_cast<xBase *>(base_ptr)
-                                         ->baseFlags),
-                                base.baseFlags);
-                    } else {
-                        m_selected_base_index.reset();
+                        ImGui::EndPopup();
                     }
 
-                    ImGui::EndPopup();
+                    ImGui::TableNextColumn();
+
+                    const char *base_type_name;
+                    if (base.baseType >= eBaseTypeCount)
+                        base_type_name = base_type_names[eBaseTypeUnknown];
+                    else
+                        base_type_name = base_type_names[base.baseType];
+                    ImGui::Text("%s", base_type_name);
+
+                    if (ImGui::BeginItemTooltip()) {
+                        ImGui::Text("0x%x", base.baseType);
+                        ImGui::EndTooltip();
+                    }
+
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%d", base.linkCount);
+                    ImGui::TableNextColumn();
+                    sprintf(text_buffer, "0x%x##BaseFlags", base.baseFlags);
+
+                    if (ImGui::Selectable(text_buffer, false)) {
+                        m_selected_base_index = i;
+                        ImGui::OpenPopup("SelectedBaseFlagsPopup");
+                    }
+
+
+                    if (ImGui::BeginPopup("SelectedBaseFlagsPopup")) {
+                        if (m_selected_base_index < scene.num_base) {
+                            auto base_ptr =
+                                read_guest_infallible<guest_ptr<xBase>>(
+                                    scene.base + (sizeof(guest_ptr<xBase>) *
+                                                  *m_selected_base_index));
+
+
+                            auto base = read_guest_infallible<xBase>(base_ptr);
+
+                            auto modified = false;
+
+                            modified |= ImGui::CheckboxFlagsT<U16>(
+                                "Enabled", &base.baseFlags, BaseFlags::Enabled);
+                            modified |= ImGui::CheckboxFlagsT<U16>(
+                                "Persistent", &base.baseFlags,
+                                BaseFlags::Persistent);
+                            modified |= ImGui::CheckboxFlagsT<U16>(
+                                "Valid", &base.baseFlags, BaseFlags::Valid);
+                            modified |= ImGui::CheckboxFlagsT<U16>(
+                                "Visible During Cutscenes", &base.baseFlags,
+                                BaseFlags::VisibleDuringCutscenes);
+                            modified |= ImGui::CheckboxFlagsT<U16>(
+                                "Receive Shadows", &base.baseFlags,
+                                BaseFlags::ReceiveShadows);
+
+                            if (modified)
+                                write_guest_infallible(
+                                    reinterpret_cast<vaddr>(
+                                        &reinterpret_cast<xBase *>(base_ptr)
+                                             ->baseFlags),
+                                    base.baseFlags);
+                        } else {
+                            m_selected_base_index.reset();
+                        }
+
+                        ImGui::EndPopup();
+                    }
+
+                    ImGui::PopID();
                 }
 
-                ImGui::PopID();
+                ImGui::EndTable();
             }
-
-            ImGui::EndTable();
         }
+
+        ImGui::EndChild();
+
+        if (ImGui::BeginChild(
+                "Properties",
+                ImVec2(0, content_region_available_at_start.y * 0.2f))) {
+            ImGui::Text("hello");
+        }
+
+        ImGui::EndChild();
     }
 
     ImGui::End();
@@ -811,6 +976,22 @@ void DebugTSSMWindow::Draw()
         ImGui::Text("Fade: %s", fade.active ? "true" : "false");
         ImGui::Text("Hold: %d", fade.hold_at_dest);
         ImGui::Text("Remaining: %f", fade.time_total - fade.time_passed);
+
+        // ___player_ent_dont_use_directly
+        if (auto player_entity_ptr =
+                read_guest_infallible<guest_ptr<xEnt>>(0x002afe28)) {
+            ImGui::Text("Player: 0x%x", player_entity_ptr);
+
+            auto player_entity = read_guest_infallible<xEnt>(player_entity_ptr);
+            ImGui::Text("Frame: 0x%x", player_entity.frame);
+
+            auto frame = read_guest_infallible<xEntFrame>(player_entity.frame);
+
+            ImGui::Text("%f, %f, %f", frame.mat.pos.x, frame.mat.pos.y,
+                        frame.mat.pos.z);
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "No player");
+        }
     }
 
     ImGui::End();
