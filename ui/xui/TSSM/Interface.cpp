@@ -191,15 +191,15 @@ void Interface::BowlStorageOverlay::draw_contents()
             ImGui::InputFloat3("Upper Animation Bounds", &incrediball.animBound.upper.x);
             ImGui::InputFloat3("Lower Animation Bounds", &incrediball.animBound.lower.x);
             ImGui::EndDisabled();
+        }
 
-            ImGui::Separator();
+        ImGui::Separator();
 
-            auto pressed_l3 = ImGui::IsKeyPressed(ImGuiKey_GamepadL3, false);
-            if (ImGui::Button("Resolve", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f)) || pressed_l3)
-            {
-                incrediball.Flags &= ~(0b0000'0001);
-                write_field(incrediball_ptr, incrediball, &Core::xModelInstance::Flags);
-            }
+        auto pressed_l3 = ImGui::IsKeyPressed(ImGuiKey_GamepadL3, false);
+        if (ImGui::Button("Resolve", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f)) || pressed_l3)
+        {
+            incrediball.Flags &= ~(0b0000'0001);
+            write_field(incrediball_ptr, incrediball, &Core::xModelInstance::Flags);
         }
     }
     else
