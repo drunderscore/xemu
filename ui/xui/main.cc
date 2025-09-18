@@ -50,10 +50,11 @@
 #include "welcome.hh"
 #include "menubar.hh"
 #include "compat.hh"
-#include "tssm.hh"
 #if defined(_WIN32)
 #include "update.hh"
 #endif
+
+#include "TSSM/Interface.h"
 
 bool g_screenshot_pending;
 const char *g_snapshot_pending_load_name;
@@ -307,7 +308,7 @@ void xemu_hud_render(void)
     monitor_window.Draw();
     apu_window.Draw();
     video_window.Draw();
-    tssm_window.Draw();
+    TSSM::s_interface.draw();
     compatibility_reporter_window.Draw();
 #if defined(_WIN32)
     update_window.Draw();

@@ -17,10 +17,11 @@ xemu_ss.add(files(
   'scene-manager.cc',
   'scene.cc',
   'snapshot-manager.cc',
-  'tssm.cc',
   'viewport-manager.cc',
   'welcome.cc',
   'widgets.cc',
+
+  'TSSM/Interface.cpp',
 ))
 
 if host_os == 'windows'
