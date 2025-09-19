@@ -602,6 +602,67 @@ struct xScene
     GuestPtr<void> id2Name;
 };
 
+struct xPortalAsset
+{
+    xBaseAsset base;
+    unsigned int assetCameraID; // offset 0x8, size 0x4
+    unsigned int assetMarkerID; // offset 0xC, size 0x4
+    float ang;                  // offset 0x10, size 0x4
+    unsigned int sceneID;       // offset 0x14, size 0x4
+};
+
+struct xEnvAsset
+{
+    xBaseAsset base;
+    unsigned int bspAssetID;           // offset 0x8, size 0x4
+    unsigned int startCameraAssetID;   // offset 0xC, size 0x4
+    unsigned int climateFlags;         // offset 0x10, size 0x4
+    float climateStrengthMin;          // offset 0x14, size 0x4
+    float climateStrengthMax;          // offset 0x18, size 0x4
+    unsigned int bspLightKit;          // offset 0x1C, size 0x4
+    unsigned int objectLightKit;       // offset 0x20, size 0x4
+    unsigned int flags;                // offset 0x24, size 0x4
+    unsigned int bspCollisionAssetID;  // offset 0x28, size 0x4
+    unsigned int bspFXAssetID;         // offset 0x2C, size 0x4
+    unsigned int bspCameraAssetID;     // offset 0x30, size 0x4
+    unsigned int bspMapperID;          // offset 0x34, size 0x4
+    unsigned int bspMapperCollisionID; // offset 0x38, size 0x4
+    unsigned int bspMapperFXID;        // offset 0x3C, size 0x4
+    float loldHeight;                  // offset 0x40, size 0x4
+    xVec3 minBounds;                   // offset 0x44, size 0xC
+    xVec3 maxBounds;                   // offset 0x50, size 0xC
+};
+
+struct _zPortal
+{
+    xBase base;
+    GuestPtr<xPortalAsset> passet; // offset 0x10, size 0x4
+};
+
+struct _zEnv
+{
+    xBase base;
+    GuestPtr<xEnvAsset> easset; // offset 0x10, size 0x4
+};
+
+struct zSceneParameters;
+// This is probably close enough.
+struct zScene
+{
+    // Well isn't that funny.
+    xScene _base;
+    GuestPtr<_zPortal> pendingPortal;      // offset 0x68, size 0x4
+    signed int num_base;                   // offset 0x6C, size 0x4
+    GuestPtr<GuestPtr<xBase>> base;        // offset 0x70, size 0x4
+    unsigned int num_update_base;          // offset 0x74, size 0x4
+    GuestPtr<GuestPtr<xBase>> update_base; // offset 0x78, size 0x4
+    signed int baseCount[140];             // offset 0x7C, size 0x230
+    xBase* baseList[140];                  // offset 0x2AC, size 0x230
+    GuestPtr<_zEnv> zen;                   // offset 0x4DC, size 0x4
+    GuestPtr<zSceneParameters> parameters; // offset 0x4E0, size 0x4
+    unsigned char enableDrawing;           // offset 0x4E4, size 0x1
+};
+
 // We're missing xGlobals and zGlobals because it is difficult to
 // create a proper structure for them. It is also huge, and rarely
 // would it be worthwhile to read the entire object from the guest.
@@ -609,6 +670,7 @@ struct xScene
 struct xGlobalsOffsets
 {
     static constexpr unsigned int ___player_ent_dont_use_directly = 0x7F8;
+    static constexpr unsigned int sceneCur = 0x7FC;
 };
 
 struct xGlobals
@@ -617,5 +679,7 @@ struct xGlobals
 
     static constexpr GuestPtr<GuestPtr<xEnt>> ___player_ent_dont_use_directly =
         globals + xGlobalsOffsets::___player_ent_dont_use_directly;
+
+    static constexpr GuestPtr<GuestPtr<zScene>> sceneCur = globals + xGlobalsOffsets::sceneCur;
 };
 }

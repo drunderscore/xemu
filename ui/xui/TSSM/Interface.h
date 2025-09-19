@@ -19,19 +19,33 @@
 
 #pragma once
 
+#include <map>
+#include <string>
+
+typedef int ImGuiWindowFlags;
+
 namespace TSSM
 {
 class Interface
 {
 private:
-    class Overlay
+    class Window
     {
     public:
-        void draw();
+        virtual void draw(ImGuiWindowFlags = 0);
 
     protected:
-        virtual const char* name() const = 0;
+        virtual const char* name() = 0;
         virtual void draw_contents() = 0;
+    };
+
+    class Overlay : public Window
+    {
+    public:
+        virtual void draw(ImGuiWindowFlags = 0) override;
+
+    protected:
+        virtual void draw_contents() override;
 
     private:
         unsigned int m_position{};
@@ -40,27 +54,48 @@ private:
     class PlayerOverlay : public Overlay
     {
     protected:
-        const char* name() const override { return "Player"; }
+        const char* name() override { return "Player"; }
         void draw_contents() override;
     };
 
     class BowlStorageOverlay : public Overlay
     {
     protected:
-        const char* name() const override { return "Bowl Storage"; }
+        const char* name() override { return "Bowl Storage"; }
         void draw_contents() override;
     };
 
+    class SceneBrowser : public Window
+    {
+    public:
+        explicit SceneBrowser(const std::map<unsigned int, std::string>& hash_names) : m_hash_names(hash_names) {}
+
+        const char* name() override;
+        virtual void draw_contents() override;
+
+    private:
+        // 0 as empty should be okay!
+        unsigned int m_selected_id{};
+
+        const std::map<unsigned int, std::string>& m_hash_names;
+        char m_window_name[64]{};
+    };
+
 public:
+    Interface();
+
     void draw_menu_item();
 
     void draw();
 
 private:
+    std::map<unsigned int, std::string> m_hash_names;
     PlayerOverlay m_player_overlay;
     bool m_player_overlay_visible{};
     BowlStorageOverlay m_bowl_storage_overlay;
     bool m_bowl_storage_overlay_visible{};
+    SceneBrowser m_scene_browser;
+    bool m_scene_browser_visible{};
 };
 
 extern Interface s_interface;

@@ -21,11 +21,23 @@
 #include "Core.h"
 #include "Game.h"
 #include "imgui.h"
+#include <cstdio>
+#include <fstream>
+#include <ios>
 #include <memory>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <utility>
 
 #include <cstdint>
 // Must include cstdint before this.
 #include "exec/vaddr.h"
+
+// FIXME: Most all reads/writes result in TOCTOUs.
+//        Some lock is held, but only during the individual operation.
+//        For our sake, we actually want to be holding it more coarsely:
+//        during all iteration, anytime we encounter any level of pointer indirection, etc.
 
 extern "C"
 {
@@ -86,11 +98,71 @@ namespace TSSM
 {
 Interface s_interface;
 
-void Interface::Overlay::draw()
+Interface::Interface() : m_scene_browser(m_hash_names)
 {
-    auto window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
-                        ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+    std::ifstream file("rainbow.txt");
+
+    if (!file.is_open())
+    {
+        fprintf(stderr, "Unable to open rainbow.txt. Scene Browser experience may be sad :(\n");
+        return;
+    }
+
+    std::string line;
+    size_t line_number = 0;
+    while (std::getline(file >> std::ws, line))
+    {
+        line_number++;
+
+        // Empty lines are cool with me. Pound symbol # can be comments.
+        // Organize the rainbow, taste the rainbow.
+        if (line.empty() || line[0] == '#')
+            continue;
+
+        auto delimiter_position = line.find('=');
+        if (delimiter_position == std::string::npos)
+        {
+            fprintf(stderr, "Malformed rainbow.txt missing delimiter on line %zu\n", line_number);
+            continue;
+        }
+
+        const auto hash = line.substr(0, delimiter_position);
+        const auto value = line.substr(delimiter_position + 1);
+
+        unsigned int hash_value;
+        std::stringstream ss;
+        ss << std::hex << hash;
+
+        if (!(ss >> hash_value))
+        {
+            fprintf(stderr, "Malformed rainbow.txt invalid hexadecimal on line %zu\n", line_number);
+            continue;
+        }
+
+        // FIXME: My rainbow table actually does have some genuine duplicates due to letter case oddities.
+        //        Not really a problem that hurts anyone right now?
+        if (!m_hash_names.emplace(hash_value, std::move(value)).second)
+            fprintf(stderr, "Suspicious rainbow.txt duplicate assignment on line %zu\n", line_number);
+    }
+
+    printf("Loaded %zu hash name mappings\n", m_hash_names.size());
+}
+
+void Interface::Window::draw(ImGuiWindowFlags window_flags)
+{
+    if (ImGui::Begin(name(), {}, window_flags))
+        draw_contents();
+
+    ImGui::End();
+}
+
+void Interface::Overlay::draw(ImGuiWindowFlags window_flags)
+{
     const auto PAD = 10.0f;
+
+    window_flags |= ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+
     const auto viewport = ImGui::GetMainViewport();
     const auto& work_pos = viewport->WorkPos; // Use work area to avoid menu-bar/task-bar, if any!
     const auto& work_size = viewport->WorkSize;
@@ -114,35 +186,42 @@ void Interface::Overlay::draw()
 
     ImGui::SetNextWindowBgAlpha(0.35f); // Transparent background
 
-    if (ImGui::Begin(name(), nullptr, window_flags))
+    Window::draw(window_flags);
+}
+
+void Interface::Overlay::draw_contents()
+{
+    if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && ImGui::BeginTooltip())
     {
-        if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered())
-            ImGui::SetTooltip("right-click to change position");
+        ImGui::Text("right-click to change position");
 
-        draw_contents();
+        if (m_position >= 4)
+            ImGui::Text("left-click-drag to change position");
 
-        if (ImGui::BeginPopupContextWindow())
-        {
-            if (ImGui::MenuItem("Top-left", nullptr, m_position == 0))
-                m_position = 0;
-            if (ImGui::MenuItem("Top-right", nullptr, m_position == 1))
-                m_position = 1;
-            if (ImGui::MenuItem("Bottom-left", nullptr, m_position == 2))
-                m_position = 2;
-            if (ImGui::MenuItem("Bottom-right", nullptr, m_position == 3))
-                m_position = 3;
-            if (ImGui::MenuItem("Float", nullptr, m_position == 4))
-                m_position = 4;
-
-            ImGui::EndPopup();
-        }
+        ImGui::EndTooltip();
     }
 
-    ImGui::End();
+    if (ImGui::BeginPopupContextWindow())
+    {
+        if (ImGui::MenuItem("Top-left", nullptr, m_position == 0))
+            m_position = 0;
+        if (ImGui::MenuItem("Top-right", nullptr, m_position == 1))
+            m_position = 1;
+        if (ImGui::MenuItem("Bottom-left", nullptr, m_position == 2))
+            m_position = 2;
+        if (ImGui::MenuItem("Bottom-right", nullptr, m_position == 3))
+            m_position = 3;
+        if (ImGui::MenuItem("Float", nullptr, m_position == 4))
+            m_position = 4;
+
+        ImGui::EndPopup();
+    }
 }
 
 void Interface::PlayerOverlay::draw_contents()
 {
+    Overlay::draw_contents();
+
     auto player_ptr = read(Core::xGlobals::___player_ent_dont_use_directly);
     if (!player_ptr)
         return;
@@ -160,6 +239,8 @@ void Interface::PlayerOverlay::draw_contents()
 
 void Interface::BowlStorageOverlay::draw_contents()
 {
+    Overlay::draw_contents();
+
     if (!read(Game::s_bubble_bowl_explosion_effect_active))
     {
         ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "No bowl active");
@@ -215,9 +296,111 @@ void Interface::draw_menu_item()
     {
         ImGui::MenuItem("Player", nullptr, &m_player_overlay_visible);
         ImGui::MenuItem("Bowl Storage", nullptr, &m_bowl_storage_overlay_visible);
+        ImGui::MenuItem("Scene Browser", nullptr, &m_scene_browser_visible);
 
         ImGui::EndMenu();
     }
+}
+
+const char* Interface::SceneBrowser::name()
+{
+    char scene_name[5] = "None";
+
+    auto scene_ptr = read(Core::xGlobals::sceneCur);
+    if (scene_ptr)
+    {
+        auto scene = read(scene_ptr);
+
+        if (scene._base.sceneID != 0)
+        {
+            scene_name[0] = static_cast<char>((scene._base.sceneID >> 24) & 0xFF);
+            scene_name[1] = static_cast<char>((scene._base.sceneID >> 16) & 0xFF);
+            scene_name[2] = static_cast<char>((scene._base.sceneID >> 8) & 0xFF);
+            scene_name[3] = static_cast<char>(scene._base.sceneID & 0xFF);
+        }
+    }
+
+    snprintf(m_window_name, sizeof(m_window_name), "Scene Browser %s###Scene Browser", scene_name);
+
+    return m_window_name;
+}
+
+void Interface::SceneBrowser::draw_contents()
+{
+    auto scene_ptr = read(Core::xGlobals::sceneCur);
+    if (!scene_ptr)
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "No scene active.");
+        return;
+    }
+
+    auto scene = read(scene_ptr);
+
+    if (scene.num_base <= 0)
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Scene empty.");
+        return;
+    }
+
+    // We're going to list all of our bases for selection, but we also need to do that
+    // to actually find the selection, so remember that here -- we can use it by the end.
+    // This also gives us a chance to invalidate the selection.
+    std::optional<int> selected_index;
+
+    if (ImGui::BeginChild("Bases", {}, ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders))
+    {
+        for (auto i = 0; i < scene.num_base; i++)
+        {
+            auto base_ptr = read(scene.base, i);
+            if (!base_ptr)
+                continue;
+
+            auto base = read(base_ptr);
+
+            ImGui::PushID(i);
+
+            const char* name;
+            std::string formatted_hash_string;
+
+            // Yeah, we probably have a name for this hash...
+            if (auto it = m_hash_names.find(base.id); it != m_hash_names.end())
+            {
+                name = it->second.c_str();
+            }
+            else // ...but be very reasonable if we happen to not -- format it as big hexadecimal.
+            {
+                std::stringstream ss;
+                ss << std::hex << std::uppercase << base.id;
+                ss >> formatted_hash_string;
+
+                name = formatted_hash_string.c_str();
+            }
+
+            if (ImGui::Selectable(name, m_selected_id == base.id))
+                m_selected_id = base.id;
+
+            // That's our selection! We need that to give you the properties.
+            if (base.id == m_selected_id)
+                selected_index = i;
+
+            ImGui::PopID();
+        }
+    }
+
+    // We didn't find the selection by the ID, so reset the ID.
+    if (!selected_index.has_value())
+        m_selected_id = 0;
+
+    ImGui::EndChild();
+
+    if (m_selected_id == 0)
+        return;
+
+    ImGui::SameLine();
+
+    if (ImGui::BeginChild("Properties", {}, ImGuiChildFlags_Borders)) {}
+
+    ImGui::EndChild();
 }
 
 void Interface::draw()
@@ -229,5 +412,8 @@ void Interface::draw()
 
     if (m_bowl_storage_overlay_visible)
         m_bowl_storage_overlay.draw();
+
+    if (m_scene_browser_visible)
+        m_scene_browser.draw();
 }
 }

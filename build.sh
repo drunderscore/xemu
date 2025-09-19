@@ -12,6 +12,7 @@ package_windows() {
     rm -rf dist
     mkdir -p dist
     cp build/qemu-system-i386w.exe dist/xemu.exe
+    cp rainbow.txt dist/rainbow.txt
     python3 "${project_source_dir}/get_deps.py" dist/xemu.exe dist
 }
 
@@ -19,6 +20,7 @@ package_wincross() {
     rm -rf dist
     mkdir -p dist
     cp build/qemu-system-i386w.exe dist/xemu.exe
+    cp rainbow.txt dist/rainbow.txt
     python3 ./scripts/gen-license.py --platform windows > dist/LICENSE.txt
 }
 
@@ -83,6 +85,7 @@ package_linux() {
     rm -rf dist
     mkdir -p dist
     cp build/qemu-system-i386 dist/xemu
+    cp rainbow.txt dist/rainbow.txt
     if test -e "${project_source_dir}/XEMU_LICENSE"; then
       cp "${project_source_dir}/XEMU_LICENSE" dist/LICENSE.txt
     else
