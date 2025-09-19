@@ -37,11 +37,12 @@ extern "C"
 }
 
 template<typename T>
-T read(TSSM::GuestPtr<T> address)
+T read(TSSM::GuestPtr<T> address, unsigned index = 0)
 {
     T value;
 
-    cpu_memory_rw_debug(qemu_get_cpu(0), address.value, &value, sizeof(T), false);
+    if (cpu_memory_rw_debug(qemu_get_cpu(0), address.value + (index * sizeof(T)), &value, sizeof(T), false) != 0)
+        value = {};
 
     return value;
 }
