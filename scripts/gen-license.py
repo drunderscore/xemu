@@ -518,6 +518,14 @@ LIBS = [
         platform={windows},
         submodule=Submodule("subprojects/curl.wrap"),
     ),
+    Lib(
+        "imnodes",
+        "https://github.com/Nelarius/imnodes",
+        mit,
+        "https://github.com/Nelarius/imnodes/blob/master/LICENSE.md",
+        ships_static=all_platforms,
+        submodule=Submodule("ui/thirdparty/imnodes"),
+    ),
 ]
 
 

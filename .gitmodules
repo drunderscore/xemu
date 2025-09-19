@@ -43,3 +43,6 @@
 [submodule "tests/lcitool/libvirt-ci"]
 	path = tests/lcitool/libvirt-ci
 	url = https://gitlab.com/libvirt/libvirt-ci.git
+[submodule "ui/thirdparty/imnodes"]
+	path = ui/thirdparty/imnodes
+	url = https://github.com/Nelarius/imnodes

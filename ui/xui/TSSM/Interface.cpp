@@ -19,8 +19,11 @@
 
 #include "Interface.h"
 #include "Core.h"
+#include "Events.h"
 #include "Game.h"
 #include "imgui.h"
+#include "imgui_combowithfilter.h"
+#include "imnodes.h"
 #include <cstdio>
 #include <fstream>
 #include <ios>
@@ -28,6 +31,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 #include <cstdint>
@@ -49,11 +53,17 @@ extern "C"
 }
 
 template<typename T>
-T read(TSSM::GuestPtr<T> address, unsigned index = 0)
+TSSM::GuestPtr<T> index(TSSM::GuestPtr<T> address, unsigned index)
+{
+    return address.value + (index * sizeof(T));
+}
+
+template<typename T>
+T read(TSSM::GuestPtr<T> address)
 {
     T value;
 
-    if (cpu_memory_rw_debug(qemu_get_cpu(0), address.value + (index * sizeof(T)), &value, sizeof(T), false) != 0)
+    if (cpu_memory_rw_debug(qemu_get_cpu(0), address.value, &value, sizeof(T), false) != 0)
         value = {};
 
     return value;
@@ -98,54 +108,67 @@ namespace TSSM
 {
 Interface s_interface;
 
-Interface::Interface() : m_scene_browser(m_hash_names)
+Interface::Interface()
 {
     std::ifstream file("rainbow.txt");
 
-    if (!file.is_open())
+    if (file.is_open())
+    {
+        std::string line;
+        size_t line_number = 0;
+        while (std::getline(file >> std::ws, line))
+        {
+            line_number++;
+
+            // Empty lines are cool with me. Pound symbol # can be comments.
+            // Organize the rainbow, taste the rainbow.
+            if (line.empty() || line[0] == '#')
+                continue;
+
+            auto delimiter_position = line.find('=');
+            if (delimiter_position == std::string::npos)
+            {
+                fprintf(stderr, "Malformed rainbow.txt missing delimiter on line %zu\n", line_number);
+                continue;
+            }
+
+            const auto hash = line.substr(0, delimiter_position);
+            const auto value = line.substr(delimiter_position + 1);
+
+            unsigned int hash_value;
+            std::stringstream ss;
+            ss << std::hex << hash;
+
+            if (!(ss >> hash_value))
+            {
+                fprintf(stderr, "Malformed rainbow.txt invalid hexadecimal on line %zu\n", line_number);
+                continue;
+            }
+
+            // FIXME: My rainbow table actually does have some genuine duplicates due to letter case oddities.
+            //        Not really a problem that hurts anyone right now?
+            if (!m_hash_names.emplace(hash_value, std::move(value)).second)
+                fprintf(stderr, "Suspicious rainbow.txt duplicate assignment on line %zu\n", line_number);
+        }
+
+        printf("Loaded %zu hash name mappings\n", m_hash_names.size());
+    }
+    else
     {
         fprintf(stderr, "Unable to open rainbow.txt. Scene Browser experience may be sad :(\n");
-        return;
     }
 
-    std::string line;
-    size_t line_number = 0;
-    while (std::getline(file >> std::ws, line))
-    {
-        line_number++;
+    ImNodes::CreateContext();
+    ImNodes::SetNodeGridSpacePos(1, ImVec2(200.0f, 200.0f));
+    ImNodes::StyleColorsDark();
 
-        // Empty lines are cool with me. Pound symbol # can be comments.
-        // Organize the rainbow, taste the rainbow.
-        if (line.empty() || line[0] == '#')
-            continue;
+    m_scene_browser = std::make_unique<SceneBrowser>(m_hash_names);
+}
 
-        auto delimiter_position = line.find('=');
-        if (delimiter_position == std::string::npos)
-        {
-            fprintf(stderr, "Malformed rainbow.txt missing delimiter on line %zu\n", line_number);
-            continue;
-        }
-
-        const auto hash = line.substr(0, delimiter_position);
-        const auto value = line.substr(delimiter_position + 1);
-
-        unsigned int hash_value;
-        std::stringstream ss;
-        ss << std::hex << hash;
-
-        if (!(ss >> hash_value))
-        {
-            fprintf(stderr, "Malformed rainbow.txt invalid hexadecimal on line %zu\n", line_number);
-            continue;
-        }
-
-        // FIXME: My rainbow table actually does have some genuine duplicates due to letter case oddities.
-        //        Not really a problem that hurts anyone right now?
-        if (!m_hash_names.emplace(hash_value, std::move(value)).second)
-            fprintf(stderr, "Suspicious rainbow.txt duplicate assignment on line %zu\n", line_number);
-    }
-
-    printf("Loaded %zu hash name mappings\n", m_hash_names.size());
+Interface::~Interface()
+{
+    m_scene_browser.reset();
+    ImNodes::DestroyContext();
 }
 
 void Interface::Window::draw(ImGuiWindowFlags window_flags)
@@ -290,18 +313,6 @@ void Interface::BowlStorageOverlay::draw_contents()
     }
 }
 
-void Interface::draw_menu_item()
-{
-    if (ImGui::BeginMenu("TSSM"))
-    {
-        ImGui::MenuItem("Player", nullptr, &m_player_overlay_visible);
-        ImGui::MenuItem("Bowl Storage", nullptr, &m_bowl_storage_overlay_visible);
-        ImGui::MenuItem("Scene Browser", nullptr, &m_scene_browser_visible);
-
-        ImGui::EndMenu();
-    }
-}
-
 const char* Interface::SceneBrowser::name()
 {
     char scene_name[5] = "None";
@@ -323,6 +334,18 @@ const char* Interface::SceneBrowser::name()
     snprintf(m_window_name, sizeof(m_window_name), "Scene Browser %s###Scene Browser", scene_name);
 
     return m_window_name;
+}
+
+Interface::SceneBrowser::SceneBrowser(const std::map<unsigned int, std::string>& hash_names)
+    : m_hash_names(hash_names), m_links_nodes_editor_context(ImNodes::EditorContextCreate())
+{
+    ImNodes::PushAttributeFlag(ImNodesAttributeFlags_EnableLinkDetachWithDragClick);
+}
+
+Interface::SceneBrowser::~SceneBrowser()
+{
+    ImNodes::PopAttributeFlag();
+    ImNodes::EditorContextFree(m_links_nodes_editor_context);
 }
 
 void Interface::SceneBrowser::draw_contents()
@@ -352,7 +375,7 @@ void Interface::SceneBrowser::draw_contents()
     {
         for (auto i = 0; i < scene.num_base; i++)
         {
-            auto base_ptr = read(scene.base, i);
+            auto base_ptr = read(index(scene.base, i));
             if (!base_ptr)
                 continue;
 
@@ -360,24 +383,19 @@ void Interface::SceneBrowser::draw_contents()
 
             ImGui::PushID(i);
 
-            const char* name;
-            std::string formatted_hash_string;
+            auto name = name_of_or_stringified_asset_id(base.id);
+            auto text = std::visit(
+                [](auto& value) {
+                    using T = std::decay_t<decltype(value)>;
 
-            // Yeah, we probably have a name for this hash...
-            if (auto it = m_hash_names.find(base.id); it != m_hash_names.end())
-            {
-                name = it->second.c_str();
-            }
-            else // ...but be very reasonable if we happen to not -- format it as big hexadecimal.
-            {
-                std::stringstream ss;
-                ss << std::hex << std::uppercase << base.id;
-                ss >> formatted_hash_string;
+                    if constexpr (std::is_same_v<T, const char*>)
+                        return value;
+                    else if constexpr (std::is_same_v<T, std::string>)
+                        return value.c_str();
+                },
+                name);
 
-                name = formatted_hash_string.c_str();
-            }
-
-            if (ImGui::Selectable(name, m_selected_id == base.id))
+            if (ImGui::Selectable(text, m_selected_id == base.id))
             {
                 // Clicking again? Go away.
                 if (m_selected_id == base.id)
@@ -402,19 +420,210 @@ void Interface::SceneBrowser::draw_contents()
 
     ImGui::SameLine();
 
-    if (ImGui::BeginChild("Properties", {}, ImGuiChildFlags_Borders))
+    if (ImGui::BeginChild("Selection", {}, ImGuiChildFlags_Borders))
     {
-        if (m_selected_id != 0)
+        if (selected_index.has_value())
         {
-            auto base = read(scene.base, m_selected_id);
+            // FIXME: Major TOCTOU, see top of file FIXME for explaination.
+            //        We assume pointer is there because it should be,
+            //        but it may have just now changed.
+            auto base_ptr = read(index(scene.base, *selected_index));
+
+            if (ImGui::BeginTabBar("Tools"))
+            {
+                if (ImGui::BeginTabItem("Properties"))
+                {
+                    draw_properties(base_ptr);
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::BeginTabItem("Links"))
+                {
+                    draw_links(base_ptr);
+                    ImGui::EndTabItem();
+                }
+
+                ImGui::EndTabBar();
+            }
         }
         else
         {
-            ImGui::TextDisabled("Make a selection to view properties.");
+            ImGui::TextDisabled("Make a selection to view available tools.");
         }
     }
 
     ImGui::EndChild();
+}
+
+std::variant<const char*, std::string> Interface::SceneBrowser::name_of_or_stringified_asset_id(int id) const
+{
+    if (auto it = m_hash_names.find(id); it != m_hash_names.end())
+        return it->second.c_str();
+
+    std::string value;
+    std::stringstream ss;
+
+    ss << std::hex << std::uppercase << id;
+    ss >> value;
+
+    return value;
+}
+
+void Interface::SceneBrowser::draw_properties(GuestPtr<Core::xBase> base_ptr)
+{
+    ImGui::Text("my properties go right here");
+}
+
+void Interface::SceneBrowser::draw_links(GuestPtr<Core::xBase> base_ptr)
+{
+    // FIXME: The width of nodes seems to just be bullshit so we have to set explicit widths for items.
+    const auto item_width = 60.0f;
+
+    auto base = read(base_ptr);
+
+    auto frame_padding = ImGui::GetStyle().FramePadding;
+
+    ImNodes::EditorContextSet(m_links_nodes_editor_context);
+    ImNodes::BeginNodeEditor();
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, frame_padding);
+
+    auto id = 0;
+    for (auto i = 0; i < base.linkCount; i++)
+    {
+        auto link = read(index(base.link, i));
+
+        int start_link;
+        int end_link;
+
+        {
+            ImNodes::BeginNode(++id);
+            ImNodes::BeginNodeTitleBar();
+
+            start_link = ++id;
+            ImNodes::BeginOutputAttribute(start_link);
+
+            auto src_event_text = link.srcEvent >= (sizeof(s_event_names) / sizeof(const char*))
+                                      ? "invalid?"
+                                      : s_event_names[link.srcEvent];
+
+            ImGui::SetNextItemWidth(item_width * 2);
+            if (ImGui::BeginCombo("##Source", src_event_text))
+            {
+                for (unsigned j = 0; j < sizeof(s_event_names) / sizeof(const char*); j++)
+                {
+                    if (ImGui::Selectable(s_event_names[j]))
+                    {
+                        link.srcEvent = j;
+                        write_field(index(base.link, i), link, &Core::xLinkAsset::srcEvent);
+                    }
+                }
+
+                ImGui::EndCombo();
+            }
+
+            ImNodes::EndInputAttribute();
+
+            ImNodes::EndNodeTitleBar();
+
+            for (auto j = 0; j < 4; j++)
+            {
+                ImNodes::BeginStaticAttribute(++id);
+                ImGui::SetNextItemWidth(item_width);
+                ImGui::InputFloat("Parameter", &link.param[j]);
+                ImNodes::EndStaticAttribute();
+            }
+
+            auto param_widget_asset_name = name_of_or_stringified_asset_id(link.paramWidgetAssetID);
+            auto param_widget_asset_text = std::visit(
+                [](auto& value) {
+                    using T = std::decay_t<decltype(value)>;
+
+                    if constexpr (std::is_same_v<T, const char*>)
+                        return value;
+                    else if constexpr (std::is_same_v<T, std::string>)
+                        return value.c_str();
+                },
+                param_widget_asset_name);
+
+            ImNodes::BeginStaticAttribute(++id);
+            ImGui::TextUnformatted("Asset Parameter");
+            ImGui::TextUnformatted(param_widget_asset_text);
+            ImNodes::EndStaticAttribute();
+
+            ImNodes::EndNode();
+        }
+
+        {
+            ImNodes::BeginNode(++id);
+            ImNodes::BeginNodeTitleBar();
+
+            end_link = ++id;
+            ImNodes::BeginInputAttribute(end_link);
+
+            auto dst_event_text = link.dstEvent >= (sizeof(s_event_names) / sizeof(const char*))
+                                      ? "invalid?"
+                                      : s_event_names[link.dstEvent];
+
+            ImGui::SetNextItemWidth(item_width * 2);
+            if (ImGui::BeginCombo("##Destination", dst_event_text))
+            {
+                for (unsigned j = 0; j < sizeof(s_event_names) / sizeof(const char*); j++)
+                {
+                    if (ImGui::Selectable(s_event_names[j]))
+                    {
+                        link.dstEvent = j;
+                        write_field(index(base.link, i), link, &Core::xLinkAsset::dstEvent);
+                    }
+                }
+
+                ImGui::EndCombo();
+            }
+
+            ImNodes::EndInputAttribute();
+
+            ImNodes::EndNodeTitleBar();
+
+            auto dst_asset_name = name_of_or_stringified_asset_id(link.dstAssetID);
+            auto dst_asset_text = std::visit(
+                [](auto& value) {
+                    using T = std::decay_t<decltype(value)>;
+
+                    if constexpr (std::is_same_v<T, const char*>)
+                        return value;
+                    else if constexpr (std::is_same_v<T, std::string>)
+                        return value.c_str();
+                },
+                dst_asset_name);
+
+            if (ImGui::Selectable(dst_asset_text, false, ImGuiSelectableFlags_None, ImVec2(item_width * 4, 0.0f)))
+                m_selected_id = link.dstAssetID;
+
+            ImNodes::EndNode();
+        }
+
+        ImNodes::Link(++id, start_link, end_link);
+    }
+
+    ImGui::PopStyleVar();
+
+    ImNodes::EndNodeEditor();
+
+    int link_id;
+    if (ImNodes::IsLinkDestroyed(&link_id))
+        printf("destroyed link %d\n", link_id);
+}
+
+void Interface::draw_menu_item()
+{
+    if (ImGui::BeginMenu("TSSM"))
+    {
+        ImGui::MenuItem("Player", nullptr, &m_player_overlay_visible);
+        ImGui::MenuItem("Bowl Storage", nullptr, &m_bowl_storage_overlay_visible);
+        ImGui::MenuItem("Scene Browser", nullptr, &m_scene_browser_visible);
+
+        ImGui::EndMenu();
+    }
 }
 
 void Interface::draw()
@@ -427,7 +636,7 @@ void Interface::draw()
     if (m_bowl_storage_overlay_visible)
         m_bowl_storage_overlay.draw();
 
-    if (m_scene_browser_visible)
-        m_scene_browser.draw();
+    if (m_scene_browser && m_scene_browser_visible)
+        m_scene_browser->draw();
 }
 }

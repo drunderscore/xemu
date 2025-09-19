@@ -19,13 +19,23 @@
 
 #pragma once
 
+#include "GuestPtr.h"
 #include <map>
+#include <memory>
 #include <string>
+#include <variant>
 
 typedef int ImGuiWindowFlags;
 
+struct ImNodesEditorContext;
+
 namespace TSSM
 {
+namespace Core
+{
+struct xBase;
+}
+
 class Interface
 {
 private:
@@ -68,22 +78,31 @@ private:
     class SceneBrowser : public Window
     {
     public:
-        explicit SceneBrowser(const std::map<unsigned int, std::string>& hash_names) : m_hash_names(hash_names) {}
+        explicit SceneBrowser(const std::map<unsigned int, std::string>& hash_names);
+        virtual ~SceneBrowser();
 
     protected:
         const char* name() override;
         virtual void draw_contents() override;
 
     private:
+        // Note: Our string_view must be null-terminated from here!
+        std::variant<const char*, std::string> name_of_or_stringified_asset_id(int) const;
+
+        void draw_properties(GuestPtr<Core::xBase>);
+        void draw_links(GuestPtr<Core::xBase>);
+
         // 0 as empty should be okay!
         unsigned int m_selected_id{};
 
         const std::map<unsigned int, std::string>& m_hash_names;
         char m_window_name[64]{};
+        ImNodesEditorContext* m_links_nodes_editor_context{};
     };
 
 public:
     Interface();
+    ~Interface();
 
     void draw_menu_item();
 
@@ -95,7 +114,7 @@ private:
     bool m_player_overlay_visible{};
     BowlStorageOverlay m_bowl_storage_overlay;
     bool m_bowl_storage_overlay_visible{};
-    SceneBrowser m_scene_browser;
+    std::unique_ptr<SceneBrowser> m_scene_browser;
     bool m_scene_browser_visible{};
 };
 

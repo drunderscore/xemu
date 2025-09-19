@@ -53,6 +53,16 @@ struct xLinkAsset
     unsigned int chkAssetID;         // offset 0x1C, size 0x4
 };
 
+// Not a real enum.
+enum class BaseFlags
+{
+    Enabled = 1 << 0,
+    Persistent = 1 << 1,
+    Valid = 1 << 2,
+    VisibleDuringCutscene = 1 << 3,
+    ReceiveShadows = 1 << 4,
+};
+
 struct xBase
 {
 public:
