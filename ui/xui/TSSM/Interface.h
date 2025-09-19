@@ -70,6 +70,7 @@ private:
     public:
         explicit SceneBrowser(const std::map<unsigned int, std::string>& hash_names) : m_hash_names(hash_names) {}
 
+    protected:
         const char* name() override;
         virtual void draw_contents() override;
 

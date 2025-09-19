@@ -347,7 +347,8 @@ void Interface::SceneBrowser::draw_contents()
     // This also gives us a chance to invalidate the selection.
     std::optional<int> selected_index;
 
-    if (ImGui::BeginChild("Bases", {}, ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders))
+    if (ImGui::BeginChild("Bases", {},
+                          ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AlwaysAutoResize | ImGuiChildFlags_Borders))
     {
         for (auto i = 0; i < scene.num_base; i++)
         {
@@ -377,7 +378,13 @@ void Interface::SceneBrowser::draw_contents()
             }
 
             if (ImGui::Selectable(name, m_selected_id == base.id))
-                m_selected_id = base.id;
+            {
+                // Clicking again? Go away.
+                if (m_selected_id == base.id)
+                    m_selected_id = 0;
+                else
+                    m_selected_id = base.id;
+            }
 
             // That's our selection! We need that to give you the properties.
             if (base.id == m_selected_id)
@@ -393,12 +400,19 @@ void Interface::SceneBrowser::draw_contents()
 
     ImGui::EndChild();
 
-    if (m_selected_id == 0)
-        return;
-
     ImGui::SameLine();
 
-    if (ImGui::BeginChild("Properties", {}, ImGuiChildFlags_Borders)) {}
+    if (ImGui::BeginChild("Properties", {}, ImGuiChildFlags_Borders))
+    {
+        if (m_selected_id != 0)
+        {
+            auto base = read(scene.base, m_selected_id);
+        }
+        else
+        {
+            ImGui::TextDisabled("Make a selection to view properties.");
+        }
+    }
 
     ImGui::EndChild();
 }
