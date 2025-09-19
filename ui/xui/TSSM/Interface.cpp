@@ -243,14 +243,14 @@ void Interface::BowlStorageOverlay::draw_contents()
 
     if (!read(Game::s_bubble_bowl_explosion_effect_active))
     {
-        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "No bowl active");
+        ImGui::TextColored({1.0f, 0.0f, 0.0f, 1.0f}, "No bowl active");
         return;
     }
 
     auto incrediball_ptr = read(Game::s_incrediball_model_instance);
     if (!incrediball_ptr)
     {
-        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Bowl active without model?");
+        ImGui::TextColored({1.0f, 0.0f, 0.0f, 1.0f}, "Bowl active without model?");
         return;
     }
 
@@ -258,11 +258,11 @@ void Interface::BowlStorageOverlay::draw_contents()
 
     if ((incrediball.Flags & 0x401) == 1)
     {
-        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Problematic flags 0x%x", incrediball.Flags);
+        ImGui::TextColored({1.0f, 0.5f, 0.0f, 1.0f}, "Problematic flags 0x%x", incrediball.Flags);
 
         if (incrediball.BoneCount != 0)
         {
-            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f),
+            ImGui::TextColored({1.0f, 0.0f, 0.0f, 1.0f},
                                "Problematic bone count %d -- relying "
                                "on frustum cull avoidance",
                                incrediball.BoneCount);
@@ -286,7 +286,7 @@ void Interface::BowlStorageOverlay::draw_contents()
     }
     else
     {
-        ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "No issues likely storing this bowl");
+        ImGui::TextColored({0.0f, 1.0f, 0.0f, 1.0f}, "No issues likely storing this bowl");
     }
 }
 
@@ -330,7 +330,7 @@ void Interface::SceneBrowser::draw_contents()
     auto scene_ptr = read(Core::xGlobals::sceneCur);
     if (!scene_ptr)
     {
-        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "No scene active.");
+        ImGui::TextColored({1.0f, 0.0f, 0.0f, 1.0f}, "No scene active.");
         return;
     }
 
@@ -338,7 +338,7 @@ void Interface::SceneBrowser::draw_contents()
 
     if (scene.num_base <= 0)
     {
-        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Scene empty.");
+        ImGui::TextColored({1.0f, 0.0f, 0.0f, 1.0f}, "Scene empty.");
         return;
     }
 
