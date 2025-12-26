@@ -269,7 +269,7 @@ static void render_display_pvideo_overlay(NV2AState *d)
                  GL_UNSIGNED_BYTE, tex_rgba);
     g_free(tex_rgba);
     glUniform1i(r->disp_rndr.pvideo_tex_loc, 1);
-    glUniform2f(r->disp_rndr.pvideo_in_pos_loc, in_s, in_t);
+    glUniform2f(r->disp_rndr.pvideo_in_pos_loc, in_s / 16.f, in_t / 8.f);
     glUniform4f(r->disp_rndr.pvideo_pos_loc,
                 out_x, out_y, out_width, out_height);
     glUniform3f(r->disp_rndr.pvideo_scale_loc,
@@ -378,7 +378,7 @@ void pgraph_gl_sync(NV2AState *d)
     d->vga.get_params(&d->vga, &vga_display_params);
 
     SurfaceBinding *surface = pgraph_gl_surface_get_within(d, d->pcrtc.start + vga_display_params.line_offset);
-    if (surface == NULL) {
+    if (surface == NULL || !surface->color) {
         qemu_event_set(&d->pgraph.sync_complete);
         return;
     }

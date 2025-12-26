@@ -72,6 +72,10 @@ void ProcessKeyboardShortcuts(void)
         ActionScreenshot();
     }
 
+    if (ImGui::IsKeyPressed(ImGuiKey_F11)) {
+        xemu_toggle_fullscreen();
+    }
+
 #ifdef CONFIG_RENDERDOC
     if (ImGui::IsKeyPressed(ImGuiKey_F10) && nv2a_dbg_renderdoc_available()) {
         ImGuiIO& io = ImGui::GetIO();
@@ -200,9 +204,11 @@ void ShowMainMenu()
             ImGui::SameLine();
             HelpMarker("Controls how the rendered content should be scaled "
                        "into the window");
+            ImGui::Combo("Filter Method", &g_config.display.filtering,
+                         "Linear\0Nearest\0");
             ImGui::Combo("Aspect Ratio", &g_config.display.ui.aspect_ratio,
                          "Native\0Auto\0""4:3\0""16:9\0");
-            if (ImGui::MenuItem("Fullscreen", SHORTCUT_MENU_TEXT(Alt + F),
+            if (ImGui::MenuItem("Fullscreen", "F11",
                                 xemu_is_fullscreen(), true)) {
                 xemu_toggle_fullscreen();
             }
