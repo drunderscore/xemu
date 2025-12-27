@@ -522,9 +522,9 @@ LIBS = [
         "imnodes",
         "https://github.com/Nelarius/imnodes",
         mit,
-        "https://github.com/Nelarius/imnodes/blob/master/LICENSE.md",
+        "https://github.com/Nelarius/imnodes/blob/b2ec254ce576ac3d42dfb7aef61deadbff8e7211/LICENSE.md",
         ships_static=all_platforms,
-        submodule=Submodule("ui/thirdparty/imnodes"),
+        version="b2ec254ce576ac3d42dfb7aef61deadbff8e7211",
     ),
 ]
 

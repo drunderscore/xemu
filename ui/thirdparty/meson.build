@@ -1,6 +1,3 @@
-libimnodes = static_library('imnodes', sources: files('imnodes/imnodes.cpp'), include_directories: 'imnodes', dependencies: [imgui])
-imnodes = declare_dependency(link_with: libimnodes, include_directories: 'imnodes')
-
 noc_ss = ss.source_set()
 if host_os == 'linux'
   noc_ss.add([gtk, files('noc_file_dialog/noc_file_dialog_gtk.c')])

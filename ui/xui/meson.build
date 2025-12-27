@@ -21,8 +21,9 @@ xemu_ss.add(files(
   'welcome.cc',
   'widgets.cc',
 
-  'TSSM/Interface.cpp',
   'TSSM/imgui_combowithfilter.cpp',
+  'TSSM/imnodes.cpp',
+  'TSSM/Interface.cpp',
 ))
 
 if host_os == 'windows'
